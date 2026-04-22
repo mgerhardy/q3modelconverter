@@ -1,0 +1,7 @@
+build/
+/modelconverter*
+/worldofpadman
+/foo*
+*.gltf
+*.glb
+/build-san/

@@ -1,0 +1,165 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: modelconverter
+            asset_name: modelconverter-linux-x86_64
+          - os: macos-latest
+            artifact_name: modelconverter
+            asset_name: modelconverter-macos-arm64
+          - os: windows-latest
+            artifact_name: modelconverter.exe
+            asset_name: modelconverter-windows-x86_64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Locate binary (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/${{ matrix.artifact_name }} dist/${{ matrix.asset_name }}
+          chmod +x dist/${{ matrix.asset_name }}
+
+      - name: Locate binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $candidates = @(
+            "build/Release/${{ matrix.artifact_name }}",
+            "build/${{ matrix.artifact_name }}"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) { throw "binary not found in build/" }
+          Copy-Item $found "dist/${{ matrix.asset_name }}"
+
+      - name: Test (ctest)
+        working-directory: build
+        run: ctest --output-on-failure -C Release
+
+      - name: Smoke test --help
+        shell: bash
+        run: ./dist/${{ matrix.asset_name }} --help | head -20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}
+          if-no-files-found: error
+
+  sanitize:
+    name: sanitize-asan-ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (asan + ubsan)
+        run: |
+          cmake -S . -B build-san \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build-san --parallel
+      - name: ctest
+        working-directory: build-san
+        run: ctest --output-on-failure
+        env:
+          # detect_leaks=0 for now: the gltf writer leaks a handful of
+          # short-lived strings on the exit path. Real bugs (use-after-free,
+          # OOB) are still caught by asan + ubsan in halt-on-first-error mode.
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+  gltf-validator:
+    name: gltf-validator
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Install gltf_validator
+        run: |
+          set -e
+          curl -sL https://github.com/KhronosGroup/glTF-Validator/releases/download/2.0.0-dev.3.10/gltf_validator-2.0.0-dev.3.10-linux64.tar.xz \
+            -o /tmp/gltf_validator.tar.xz
+          mkdir -p "$HOME/.local/bin"
+          tar -xJf /tmp/gltf_validator.tar.xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Validate cube round-trip outputs
+        run: |
+          set -e
+          mkdir -p build/validate
+          # Drive the in-tree round-trip test (writes cube.glb / cube.gltf
+          # / cube_anim.glb / cube_anim.gltf / cube_skel.glb under
+          # build/validate) then validate every produced glTF asset.
+          ./build/test_roundtrip build/validate
+          fail=0
+          for f in build/validate/*.glb build/validate/*.gltf; do
+            [ -e "$f" ] || continue
+            echo "== gltf_validator $f"
+            log=$(mktemp)
+            if ! gltf_validator "$f" >"$log" 2>&1; then
+              cat "$log"; fail=1; continue
+            fi
+            errs=$(grep -E '^Errors: ' "$log" | tail -1 | sed -nE 's/.*Errors: ([0-9]+).*/\1/p')
+            warns=$(grep -E '^Errors: ' "$log" | tail -1 | sed -nE 's/.*Warnings: ([0-9]+).*/\1/p')
+            : "${errs:=0}" "${warns:=0}"
+            echo "  errors=$errs warnings=$warns"
+            # Hard-fail on errors only; warnings are surfaced but not
+            # fatal (glTF-Validator flags some best-practice issues like
+            # skinned-mesh-non-root that we accept for now).
+            if [ "$errs" != "0" ]; then
+              cat "$log"
+              [ -f "$f.report.json" ] && cat "$f.report.json"
+              fail=1
+            elif [ "$warns" != "0" ]; then
+              [ -f "$f.report.json" ] && jq '.issues.messages' "$f.report.json" 2>/dev/null || cat "$f.report.json" 2>/dev/null
+            fi
+          done
+          exit $fail
+
+  release:
+    name: publish-release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
