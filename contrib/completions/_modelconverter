@@ -1,0 +1,49 @@
+#compdef modelconverter
+
+_modelconverter() {
+    local -a subcmds
+    subcmds=(
+        'info:print model summary'
+        'validate:check format limits'
+        'convert:convert between formats'
+        'player:convert a player bundle'
+    )
+
+    _arguments -C \
+        '1:subcommand:->subcmd' \
+        '*::arg:->args'
+
+    case $state in
+        subcmd)
+            _describe 'subcommand' subcmds
+            _arguments \
+                '(-i --input)'{-i,--input}'[input file]:file:_files' \
+                '(-o --output)'{-o,--output}'[output file]:file:_files' \
+                '--fps[animation sample rate]:fps' \
+                '--skin[emit .skin sidecar]' \
+                '--shader[emit .shader sidecar]' \
+                '--shader-in[apply .shader file]:file:_files' \
+                '--skin-in[apply .skin file]:file:_files' \
+                '--no-auto-skin[skip .skin auto-discovery]' \
+                '--no-auto-shader[skip .shader auto-discovery]' \
+                '--player[force player-bundle mode]' \
+                '--subdivide[Loop subdivision iterations]:n' \
+                '--decimate[keep ratio of triangles]:ratio' \
+                '--gen-lods[generate LOD levels]:n' \
+                '--gen-lod-ratios[triangle-keep ratios per LOD]:ratios' \
+                '--asset-root[texture search dir]:dir:_directories' \
+                '--shader-path[shader search dir]:dir:_files' \
+                '--shader-depth[max shader discovery depth]:n' \
+                '--info[print info and exit]' \
+                '--validate[run checks and exit non-zero on issues]' \
+                '(-v --verbose)'{-v,--verbose}'[verbose output]' \
+                '(-q --quiet)'{-q,--quiet}'[errors only]' \
+                '(-h --help)'{-h,--help}'[show help]'
+            ;;
+        args)
+            _files
+            ;;
+    esac
+}
+
+_modelconverter "$@"
