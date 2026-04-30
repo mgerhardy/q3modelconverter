@@ -50,7 +50,13 @@ set(LIB_SRCS
 add_library(modelconverter_lib STATIC ${LIB_SRCS})
 target_include_directories(modelconverter_lib PUBLIC src)
 # Suppress warnings in vendored miniz sources.
-if (NOT MSVC)
+if (MSVC)
+	set_source_files_properties(
+		src/miniz/miniz.c src/miniz/miniz_tdef.c
+		src/miniz/miniz_tinfl.c src/miniz/miniz_zip.c
+		PROPERTIES COMPILE_FLAGS "/w"
+	)
+else()
 	set_source_files_properties(
 		src/miniz/miniz.c src/miniz/miniz_tdef.c
 		src/miniz/miniz_tinfl.c src/miniz/miniz_zip.c

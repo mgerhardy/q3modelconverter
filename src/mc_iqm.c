@@ -453,6 +453,7 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 
 		/* Subsequent frames: evaluate joint poses, skin every vertex. */
 		if (isSkinned) {
+			float (*absMats)[3][4] = (float (*)[3][4])mc_malloc(sizeof(float[3][4]) * hdr->num_joints);
 			for (int f = 1; f < numFrames; ++f) {
 				/* Decode joint local TRS from this frame's channel data,
 				   then accumulate parent matrices. */
@@ -460,7 +461,6 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 				int chan = 0;
 				float frameAbs[3][4]; /* transient */
 				/* We need all absolute matrices cached so children can use parent. */
-				float (*absMats)[3][4] = (float (*)[3][4])alloca(sizeof(float[3][4]) * hdr->num_joints);
 				(void)frameAbs;
 				for (unsigned int j = 0; j < hdr->num_joints; ++j) {
 					float ch[10];
@@ -523,6 +523,7 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 					s->normal[base + 2] = nrm[2];
 				}
 			}
+			free(absMats);
 		}
 
 		free(bindPos);
@@ -539,10 +540,10 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 		for (int i = 0; i < out->numSurfaces; ++i) {
 			const mc_surface_t *s = &out->surfaces[i];
 			const float *xyz = s->xyz + (size_t)f * s->numVerts * 3;
-			for (int v = 0; v < s->numVerts; ++v) {
+			for (int vi = 0; vi < s->numVerts; ++vi) {
 				for (int k = 0; k < 3; ++k) {
-					if (xyz[v * 3 + k] < mins[k]) mins[k] = xyz[v * 3 + k];
-					if (xyz[v * 3 + k] > maxs[k]) maxs[k] = xyz[v * 3 + k];
+					if (xyz[vi * 3 + k] < mins[k]) mins[k] = xyz[vi * 3 + k];
+					if (xyz[vi * 3 + k] > maxs[k]) maxs[k] = xyz[vi * 3 + k];
 				}
 			}
 		}
@@ -556,10 +557,10 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 		for (int i = 0; i < out->numSurfaces; ++i) {
 			const mc_surface_t *s = &out->surfaces[i];
 			const float *xyz = s->xyz + (size_t)f * s->numVerts * 3;
-			for (int v = 0; v < s->numVerts; ++v) {
-				float dx = xyz[v * 3 + 0] - cx;
-				float dy = xyz[v * 3 + 1] - cy;
-				float dz = xyz[v * 3 + 2] - cz;
+			for (int vi = 0; vi < s->numVerts; ++vi) {
+				float dx = xyz[vi * 3 + 0] - cx;
+				float dy = xyz[vi * 3 + 1] - cy;
+				float dz = xyz[vi * 3 + 2] - cz;
 				float d2 = dx * dx + dy * dy + dz * dz;
 				if (d2 > r2) r2 = d2;
 			}

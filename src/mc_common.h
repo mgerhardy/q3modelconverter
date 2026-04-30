@@ -13,6 +13,19 @@ modelconverter - shared definitions
 #include <math.h>
 #include <stdint.h>
 
+/* MSVC compat: POSIX names are not available. */
+#ifdef _MSC_VER
+#include <malloc.h>
+#define strcasecmp  _stricmp
+#define strncasecmp _strnicmp
+#define strdup      _strdup
+#define alloca      _alloca
+#include <sys/stat.h>
+#ifndef S_ISDIR
+#define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+#endif
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
