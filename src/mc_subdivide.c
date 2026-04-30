@@ -64,7 +64,7 @@ static void sd_hash_init(sd_hash_t *h, int hint) {
 		cap *= 2;
 	h->cap = cap;
 	h->count = 0;
-	h->buckets = (sd_bucket_t *)calloc((size_t)cap, sizeof(sd_bucket_t));
+	h->buckets = (sd_bucket_t *)mc_calloc((size_t)cap, sizeof(sd_bucket_t));
 	for (int i = 0; i < cap; ++i)
 		h->buckets[i].key = (uint64_t)-1;
 }
@@ -176,7 +176,7 @@ static int sd_seam_vget(sd_seam_ctx_t *ctx, uint64_t key) {
 	if (idx >= 0) return idx;
 	if (ctx->vcount >= ctx->vcap) {
 		ctx->vcap = ctx->vcap ? ctx->vcap * 2 : 64;
-		ctx->vverts = (sd_seam_vert_t *)realloc(ctx->vverts,
+		ctx->vverts = (sd_seam_vert_t *)mc_realloc(ctx->vverts,
 			sizeof(sd_seam_vert_t) * (size_t)ctx->vcap);
 	}
 	idx = ctx->vcount++;
@@ -230,7 +230,7 @@ static void sd_seam_build(sd_seam_ctx_t *ctx, mc_model_t *m) {
 		sd_hash_t emap;
 		sd_hash_init(&emap, nt * 3);
 		typedef struct { int v0, v1, count; } sd_eb_t;
-		sd_eb_t *eb = (sd_eb_t *)malloc(sizeof(sd_eb_t) * (size_t)nt * 3);
+		sd_eb_t *eb = (sd_eb_t *)mc_malloc(sizeof(sd_eb_t) * (size_t)nt * 3);
 		int ne = 0;
 		for (int t = 0; t < nt; ++t) {
 			int idx[3] = { s->indices[t * 3 + 0],
@@ -297,8 +297,8 @@ static int subdivide_surface_once(mc_surface_t *s, int numFrames,
 		return 0;
 
 	/* ---- 1. Collect unique edges & per-tri edge indices. ---- */
-	sd_tri_t *tris = (sd_tri_t *)malloc(sizeof(sd_tri_t) * (size_t)oldTris);
-	sd_edge_t *edges = (sd_edge_t *)malloc(sizeof(sd_edge_t) * (size_t)oldTris * 3);
+	sd_tri_t *tris = (sd_tri_t *)mc_malloc(sizeof(sd_tri_t) * (size_t)oldTris);
+	sd_edge_t *edges = (sd_edge_t *)mc_malloc(sizeof(sd_edge_t) * (size_t)oldTris * 3);
 	int numEdges = 0;
 	sd_hash_t map;
 	sd_hash_init(&map, oldTris * 3);
@@ -343,24 +343,24 @@ static int subdivide_surface_once(mc_surface_t *s, int numFrames,
 	   interior).  Boundary vertices are those touched by any boundary
 	   edge.  We accumulate sums of neighbour positions in a separate
 	   pass per frame; valence stays the same across frames. */
-	int *valence = (int *)calloc((size_t)oldVerts, sizeof(int));
-	int *boundary = (int *)calloc((size_t)oldVerts, sizeof(int));
+	int *valence = (int *)mc_calloc((size_t)oldVerts, sizeof(int));
+	int *boundary = (int *)mc_calloc((size_t)oldVerts, sizeof(int));
 	/* For boundary vertices we need just the two boundary neighbours.
 	   Store them in bndN[v*2 + 0/1]; -1 marks unused. */
-	int *bndN = (int *)malloc(sizeof(int) * (size_t)oldVerts * 2);
+	int *bndN = (int *)mc_malloc(sizeof(int) * (size_t)oldVerts * 2);
 	for (int i = 0; i < oldVerts * 2; ++i) bndN[i] = -1;
 
 	/* Build adjacency: per-vertex neighbour list (CSR). */
-	int *adjCnt = (int *)calloc((size_t)oldVerts, sizeof(int));
+	int *adjCnt = (int *)mc_calloc((size_t)oldVerts, sizeof(int));
 	for (int e = 0; e < numEdges; ++e) {
 		adjCnt[edges[e].v0]++;
 		adjCnt[edges[e].v1]++;
 	}
-	int *adjOfs = (int *)malloc(sizeof(int) * (size_t)(oldVerts + 1));
+	int *adjOfs = (int *)mc_malloc(sizeof(int) * (size_t)(oldVerts + 1));
 	adjOfs[0] = 0;
 	for (int i = 0; i < oldVerts; ++i) adjOfs[i + 1] = adjOfs[i] + adjCnt[i];
-	int *adj = (int *)malloc(sizeof(int) * (size_t)adjOfs[oldVerts]);
-	int *fillCnt = (int *)calloc((size_t)oldVerts, sizeof(int));
+	int *adj = (int *)mc_malloc(sizeof(int) * (size_t)adjOfs[oldVerts]);
+	int *fillCnt = (int *)mc_calloc((size_t)oldVerts, sizeof(int));
 	for (int e = 0; e < numEdges; ++e) {
 		int v0 = edges[e].v0, v1 = edges[e].v1;
 		adj[adjOfs[v0] + fillCnt[v0]++] = v1;
@@ -389,9 +389,9 @@ static int subdivide_surface_once(mc_surface_t *s, int numFrames,
 	for (int e = 0; e < numEdges; ++e)
 		edges[e].newIndex = oldVerts + e;
 
-	float *newXYZ = (float *)malloc(sizeof(float) * (size_t)numFrames * (size_t)newVerts * 3);
-	float *newST = (float *)malloc(sizeof(float) * (size_t)newVerts * 2);
-	int *newIdx = (int *)malloc(sizeof(int) * (size_t)newTris * 3);
+	float *newXYZ = (float *)mc_malloc(sizeof(float) * (size_t)numFrames * (size_t)newVerts * 3);
+	float *newST = (float *)mc_malloc(sizeof(float) * (size_t)newVerts * 2);
+	int *newIdx = (int *)mc_malloc(sizeof(int) * (size_t)newTris * 3);
 
 	/* ---- 4. UVs (frame-independent). ---- */
 	if (s->st) {
@@ -507,7 +507,7 @@ static int subdivide_surface_once(mc_surface_t *s, int numFrames,
 	   two endpoint normals for each new edge midpoint, renormalising
 	   afterwards.  This preserves smooth shading and correct
 	   front-facing orientation across all formats. */
-	float *newN = (float *)calloc((size_t)numFrames * (size_t)newVerts * 3, sizeof(float));
+	float *newN = (float *)mc_calloc((size_t)numFrames * (size_t)newVerts * 3, sizeof(float));
 	if (s->normal) {
 		for (int f = 0; f < numFrames; ++f) {
 			const float *srcN = &s->normal[(size_t)f * oldVerts * 3];
@@ -577,7 +577,7 @@ int mc_subdivide(mc_model_t *m, int iterations) {
 	   warns when a surface has >= 1000 verts; cap at 999 to stay
 	   under that. */
 	enum { MC_SUBDIV_MAX_VERTS = 999 };
-	char *frozen = (char *)calloc((size_t)m->numSurfaces, 1);
+	char *frozen = (char *)mc_calloc((size_t)m->numSurfaces, 1);
 	if (!frozen)
 		return -1;
 	for (int it = 0; it < iterations; ++it) {
@@ -608,7 +608,7 @@ int mc_subdivide(mc_model_t *m, int iterations) {
 				size_t cap = 1;
 				while (cap < (size_t)(oldT * 4) + 16)
 					cap <<= 1;
-				uint64_t *table = (uint64_t *)calloc(cap, sizeof(uint64_t));
+				uint64_t *table = (uint64_t *)mc_calloc(cap, sizeof(uint64_t));
 				if (!table) {
 					sd_seam_free(&seam);
 					free(frozen);

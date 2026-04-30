@@ -26,7 +26,16 @@ Conventions
 */
 
 #define CGLTF_IMPLEMENTATION
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
+#endif
 #include "cgltf.h"
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #include "mc_common.h"
 
@@ -397,7 +406,7 @@ static unsigned char *b64_decode(const char *in, size_t in_len, size_t *out_len)
 	while (in_len > 0 && (in[in_len - 1] == '=' || isspace((unsigned char)in[in_len - 1])))
 		in_len--;
 	size_t cap = in_len * 3 / 4 + 4;
-	unsigned char *out = (unsigned char *)malloc(cap);
+	unsigned char *out = (unsigned char *)mc_malloc(cap);
 	if (!out)
 		return NULL;
 	size_t o = 0;
@@ -473,7 +482,7 @@ static void emit_texture(const cgltf_image *img, const char *base_dir, const cha
 				   the on-disk file. */
 				const char *src = comma + 1;
 				size_t srclen = strlen(src);
-				unsigned char *bin = (unsigned char *)malloc(srclen + 1);
+				unsigned char *bin = (unsigned char *)mc_malloc(srclen + 1);
 				if (bin) {
 					size_t w = 0;
 					for (size_t r = 0; r < srclen; ++r) {
@@ -650,7 +659,7 @@ static void resolve_material(const cgltf_material *mat, const cgltf_data *data, 
 					unsigned char *dec = mc_b64_decode(bex, (size_t)(bend - bex), &dec_len);
 					if (dec) {
 						free(out->q3_shader_body);
-						out->q3_shader_body = (char *)malloc(dec_len + 1);
+						out->q3_shader_body = (char *)mc_malloc(dec_len + 1);
 						if (out->q3_shader_body) {
 							memcpy(out->q3_shader_body, dec, dec_len);
 							out->q3_shader_body[dec_len] = 0;
@@ -1034,7 +1043,7 @@ static void extras_parse_skins(const char *json, mc_model_t *m) {
 						char shd[MC_MAX_QPATH] = {0};
 						extras_get_string(ebuf, "surface", surf, sizeof(surf));
 						extras_get_string(ebuf, "shader", shd, sizeof(shd));
-						mc_skin_entry_t *new_entries = (mc_skin_entry_t *)realloc(
+						mc_skin_entry_t *new_entries = (mc_skin_entry_t *)mc_realloc(
 							sv->entries, sizeof(mc_skin_entry_t) * (size_t)(sv->numEntries + 1));
 						if (new_entries) {
 							sv->entries = new_entries;
@@ -1135,7 +1144,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 	   detect skeletal animations in the next step. */
 	int *gltfNode_to_joint = NULL;
 	if (data->nodes_count > 0) {
-		gltfNode_to_joint = (int *)malloc(sizeof(int) * data->nodes_count);
+		gltfNode_to_joint = (int *)mc_malloc(sizeof(int) * data->nodes_count);
 		for (cgltf_size i = 0; i < data->nodes_count; ++i)
 			gltfNode_to_joint[i] = -1;
 	}
@@ -1181,9 +1190,9 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 	}
 	if (data->animations_count > 0) {
 		float fps = fps_hint > 0.0f ? fps_hint : 15.0f;
-		animFrames = (int *)calloc((size_t)data->animations_count, sizeof(int));
-		animTimeMin = (float *)calloc((size_t)data->animations_count, sizeof(float));
-		animTimeMax = (float *)calloc((size_t)data->animations_count, sizeof(float));
+		animFrames = (int *)mc_calloc((size_t)data->animations_count, sizeof(int));
+		animTimeMin = (float *)mc_calloc((size_t)data->animations_count, sizeof(float));
+		animTimeMax = (float *)mc_calloc((size_t)data->animations_count, sizeof(float));
 		for (cgltf_size ai = 0; ai < data->animations_count; ++ai) {
 			const cgltf_animation *anim = &data->animations[ai];
 			float tMin = 1e30f, tMax = -1e30f;
@@ -1371,7 +1380,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 			mc_surface_alloc(s, numVerts, numTris, numFrames);
 
 			/* Frame-0 positions (transformed by node world matrix). */
-			float *positions = (float *)calloc((size_t)numVerts * 3, sizeof(float));
+			float *positions = (float *)mc_calloc((size_t)numVerts * 3, sizeof(float));
 			read_floats(posAcc, positions, 3);
 			for (int v = 0; v < numVerts; ++v) {
 				mat4_transform_point(world, &positions[v * 3], &s->xyz[v * 3]);
@@ -1379,7 +1388,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 
 			/* Frame-0 normals (or default +Z). */
 			if (normAcc) {
-				float *normals = (float *)calloc((size_t)numVerts * 3, sizeof(float));
+				float *normals = (float *)mc_calloc((size_t)numVerts * 3, sizeof(float));
 				read_floats(normAcc, normals, 3);
 				for (int v = 0; v < numVerts; ++v) {
 					mat4_transform_dir(world, &normals[v * 3], &s->normal[v * 3]);
@@ -1409,7 +1418,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 				}
 				if (!tposAcc)
 					continue;
-				float *deltas = (float *)calloc((size_t)numVerts * 3, sizeof(float));
+				float *deltas = (float *)mc_calloc((size_t)numVerts * 3, sizeof(float));
 				read_floats(tposAcc, deltas, 3);
 				for (int v = 0; v < numVerts; ++v) {
 					float d[3] = {deltas[v * 3 + 0], deltas[v * 3 + 1], deltas[v * 3 + 2]};
@@ -1422,7 +1431,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 				}
 				free(deltas);
 				if (tnormAcc) {
-					float *ndelta = (float *)calloc((size_t)numVerts * 3, sizeof(float));
+					float *ndelta = (float *)mc_calloc((size_t)numVerts * 3, sizeof(float));
 					read_floats(tnormAcc, ndelta, 3);
 					for (int v = 0; v < numVerts; ++v) {
 						float d[3] = {ndelta[v * 3 + 0], ndelta[v * 3 + 1], ndelta[v * 3 + 2]};
@@ -1464,7 +1473,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 			   intermediate model keeps the engine's expected CW convention
 			   for downstream MD3/MDR/IQM writers. */
 			if (prim->indices) {
-				int *tmp = (int *)calloc((size_t)numIdx, sizeof(int));
+				int *tmp = (int *)mc_calloc((size_t)numIdx, sizeof(int));
 				read_indices(prim->indices, tmp);
 				for (int t = 0; t < numTris; ++t) {
 					s->indices[t * 3 + 0] = tmp[t * 3 + 0];
@@ -1487,8 +1496,8 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 				weightsAcc->count == (cgltf_size)numVerts) {
 				mc_surface_alloc_blend(s);
 				const cgltf_skin *sk = node->skin;
-				float *jf = (float *)calloc((size_t)numVerts * 4, sizeof(float));
-				float *wf = (float *)calloc((size_t)numVerts * 4, sizeof(float));
+				float *jf = (float *)mc_calloc((size_t)numVerts * 4, sizeof(float));
+				float *wf = (float *)mc_calloc((size_t)numVerts * 4, sizeof(float));
 				read_floats(jointsAcc, jf, 4);
 				read_floats(weightsAcc, wf, 4);
 				for (int v = 0; v < numVerts; ++v) {
@@ -1582,7 +1591,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 	   the remaining ancestors carry no per-frame animation. */
 	if (data->animations_count > 0 && out->numTags > 0 && out->numFrames > 0) {
 		/* Build node -> tag-index map. */
-		int *nodeToTag = (int *)malloc(sizeof(int) * data->nodes_count);
+		int *nodeToTag = (int *)mc_malloc(sizeof(int) * data->nodes_count);
 		for (cgltf_size i = 0; i < data->nodes_count; ++i) nodeToTag[i] = -1;
 		int tagCursor = 0;
 		for (cgltf_size i = 0; i < data->nodes_count; ++i) {
@@ -1592,7 +1601,7 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 		}
 		/* Cache parent-world (without the tag's own local transform) per
 		   tag so we don't recompute it for every frame. */
-		float (*parentWorld)[16] = (float(*)[16])malloc(sizeof(float[16]) * out->numTags);
+		float (*parentWorld)[16] = (float(*)[16])mc_malloc(sizeof(float[16]) * out->numTags);
 		for (int ti = 0; ti < out->numTags; ++ti) mat4_identity(parentWorld[ti]);
 		for (cgltf_size i = 0; i < data->nodes_count; ++i) {
 			int ti = nodeToTag[i];
@@ -1723,8 +1732,8 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 	   linearly skinned positions for that frame's joint TRS. */
 	if (skeletalMode && out->numJoints > 0) {
 		int J = out->numJoints;
-		float (*bindAbs)[3][4] = (float (*)[3][4])calloc((size_t)J, sizeof(*bindAbs));
-		float (*bindAbsInv)[3][4] = (float (*)[3][4])calloc((size_t)J, sizeof(*bindAbsInv));
+		float (*bindAbs)[3][4] = (float (*)[3][4])mc_calloc((size_t)J, sizeof(*bindAbs));
+		float (*bindAbsInv)[3][4] = (float (*)[3][4])mc_calloc((size_t)J, sizeof(*bindAbsInv));
 		for (int j = 0; j < J; ++j) {
 			const mc_joint_t *mj = &out->joints[j];
 			float local[3][4];
@@ -1736,8 +1745,8 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 			mat34_invert(bindAbs[j], bindAbsInv[j]);
 		}
 
-		float (*absMats)[3][4] = (float (*)[3][4])calloc((size_t)J, sizeof(*absMats));
-		float (*skinMats)[3][4] = (float (*)[3][4])calloc((size_t)J, sizeof(*skinMats));
+		float (*absMats)[3][4] = (float (*)[3][4])mc_calloc((size_t)J, sizeof(*absMats));
+		float (*skinMats)[3][4] = (float (*)[3][4])mc_calloc((size_t)J, sizeof(*skinMats));
 
 		for (int si = 0; si < out->numSurfaces; ++si) {
 			mc_surface_t *s = &out->surfaces[si];
@@ -1745,8 +1754,8 @@ int mc_load_gltf(const char *path, mc_model_t *out, float fps_hint) {
 
 			/* Snapshot bind positions / normals from frame 0 before we
 			   start overwriting other frames. */
-			float *bindPos = (float *)malloc(sizeof(float) * (size_t)s->numVerts * 3);
-			float *bindNrm = (float *)malloc(sizeof(float) * (size_t)s->numVerts * 3);
+			float *bindPos = (float *)mc_malloc(sizeof(float) * (size_t)s->numVerts * 3);
+			float *bindNrm = (float *)mc_malloc(sizeof(float) * (size_t)s->numVerts * 3);
 			memcpy(bindPos, s->xyz, sizeof(float) * (size_t)s->numVerts * 3);
 			memcpy(bindNrm, s->normal, sizeof(float) * (size_t)s->numVerts * 3);
 

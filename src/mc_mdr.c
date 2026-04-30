@@ -37,15 +37,52 @@ matrices, and per-vertex weights blend them at runtime.
                       warning is printed when we have to fall back to
                       static and the input had more than one frame.
 
-The compressed MDR variant (header.ofsFrames < 0, mdrCompFrame_t) is not
-supported: real-world content always uses uncompressed MDR.  Such files
-are rejected at load time.
+The compressed MDR variant (header.ofsFrames < 0, mdrCompFrame_t) is
+supported on read: compressed bones are decompressed to full 3x4
+matrices transparently via mc_mdr_uncompress_bone().
 ===========================================================================
 */
 
 #include "mc_common.h"
 
 #include <string.h>
+
+/* ------------------------------------------------------------------ */
+/* MDR compressed-frame decompression (mdrCompFrame_t / mdrCompBone_t)*/
+/* ------------------------------------------------------------------ */
+
+/* Each compressed bone is 12 unsigned shorts (24 bytes): 3 position
+   values at 1/64 scale, then 9 rotation matrix entries normalised to
+   a signed 16-bit range. */
+#define MC_COMP_BONE_BYTES 24
+#define MC_SCALE_POS  (1.0f / 64.0f)
+#define MC_SCALE_VECT (1.0f / (float)(32766))
+
+static void mc_mdr_uncompress_bone(float mat[3][4], const unsigned char *comp) {
+	const unsigned short *s = (const unsigned short *)comp;
+	/* Translation. */
+	mat[0][3] = ((int)s[0] - 32768) * MC_SCALE_POS;
+	mat[1][3] = ((int)s[1] - 32768) * MC_SCALE_POS;
+	mat[2][3] = ((int)s[2] - 32768) * MC_SCALE_POS;
+	/* 3x3 rotation. */
+	mat[0][0] = ((int)s[3]  - 32768) * MC_SCALE_VECT;
+	mat[0][1] = ((int)s[4]  - 32768) * MC_SCALE_VECT;
+	mat[0][2] = ((int)s[5]  - 32768) * MC_SCALE_VECT;
+	mat[1][0] = ((int)s[6]  - 32768) * MC_SCALE_VECT;
+	mat[1][1] = ((int)s[7]  - 32768) * MC_SCALE_VECT;
+	mat[1][2] = ((int)s[8]  - 32768) * MC_SCALE_VECT;
+	mat[2][0] = ((int)s[9]  - 32768) * MC_SCALE_VECT;
+	mat[2][1] = ((int)s[10] - 32768) * MC_SCALE_VECT;
+	mat[2][2] = ((int)s[11] - 32768) * MC_SCALE_VECT;
+}
+
+/* Compressed frame header: same as mdrFrameHeader_t but without name[16]. */
+typedef struct {
+	float bounds[2][3];
+	float localOrigin[3];
+	float radius;
+	/* followed by numBones * MC_COMP_BONE_BYTES */
+} mc_mdrCompFrameHeader_t;
 
 /* ------------------------------------------------------------------ */
 /* Read                                                                */
@@ -71,7 +108,9 @@ static void mdr_matrix_to_trs(const float m[3][4], float trans[3], float quat[4]
 	float sy = sqrtf(m[0][1] * m[0][1] + m[1][1] * m[1][1] + m[2][1] * m[2][1]);
 	float sz = sqrtf(m[0][2] * m[0][2] + m[1][2] * m[1][2] + m[2][2] * m[2][2]);
 	scale[0] = sx; scale[1] = sy; scale[2] = sz;
-	if (sx < 1e-8f) sx = 1; if (sy < 1e-8f) sy = 1; if (sz < 1e-8f) sz = 1;
+	if (sx < 1e-8f) sx = 1;
+	if (sy < 1e-8f) sy = 1;
+	if (sz < 1e-8f) sz = 1;
 	float r[3][3] = {
 		{ m[0][0] / sx, m[0][1] / sy, m[0][2] / sz },
 		{ m[1][0] / sx, m[1][1] / sy, m[1][2] / sz },
@@ -128,16 +167,9 @@ int mc_load_mdr(const char *path, mc_model_t *out) {
 		free(buf);
 		return -1;
 	}
+	int isCompressed = 0;
 	if (hdr->ofsFrames < 0) {
-		MC_ERR("'%s': this file uses the compressed MDR frame format\n"
-			"   (negative ofsFrames marks per-bone delta-compressed frames\n"
-			"    used by some legacy assets). modelconverter currently\n"
-			"    only reads the uncompressed variant.\n"
-			"   workaround: re-export from the original source, or\n"
-			"   convert via an engine that supports it (ioquake3) to MD3/IQM first.\n",
-			path);
-		free(buf);
-		return -1;
+		isCompressed = 1;
 	}
 	if (hdr->numFrames < 1 || hdr->numBones < 1 || hdr->numLODs < 1) {
 		MC_ERR("error: '%s' has no frames, bones or LODs\n", path);
@@ -150,32 +182,80 @@ int mc_load_mdr(const char *path, mc_model_t *out) {
 		return -1;
 	}
 
-	out->numFrames = hdr->numFrames;
-	out->numTags = hdr->numTags;
-	out->fps = 15.0f;
-	out->frames = (mc_frame_t *)calloc((size_t)out->numFrames, sizeof(mc_frame_t));
-	if (out->numTags > 0)
-		out->tags = (mc_tag_t *)calloc((size_t)out->numFrames * (size_t)out->numTags, sizeof(mc_tag_t));
-
-	const size_t boneStride = sizeof(mc_mdrFrameHeader_t) + sizeof(mc_mdrBone_t) * (size_t)hdr->numBones;
-	const unsigned char *framePtr = buf + hdr->ofsFrames;
-
-	/* Cache pointers to each frame's bone array so we can re-evaluate them per surface vertex. */
-	const mc_mdrBone_t **frameBones = (const mc_mdrBone_t **)calloc((size_t)hdr->numFrames, sizeof(*frameBones));
-	if (!frameBones) {
+	/* Validate section offsets against file size. */
+	size_t framesOfs;
+	size_t boneStride;
+	if (isCompressed) {
+		framesOfs = (size_t)(-hdr->ofsFrames);
+		boneStride = sizeof(mc_mdrCompFrameHeader_t) + (size_t)MC_COMP_BONE_BYTES * (size_t)hdr->numBones;
+	} else {
+		framesOfs = (size_t)hdr->ofsFrames;
+		boneStride = sizeof(mc_mdrFrameHeader_t) + sizeof(mc_mdrBone_t) * (size_t)hdr->numBones;
+	}
+	if (!mc_bounds_check(framesOfs,
+			(size_t)hdr->numFrames * boneStride, fileSize)) {
+		MC_ERR("mdr: '%s' frames offset/count out of bounds\n", path);
 		free(buf);
 		return -1;
 	}
+	if ((size_t)hdr->ofsLODs > fileSize) {
+		MC_ERR("mdr: '%s' LODs offset out of bounds\n", path);
+		free(buf);
+		return -1;
+	}
+	if (hdr->numTags > 0 &&
+		!mc_bounds_check((size_t)hdr->ofsTags,
+			(size_t)hdr->numTags * sizeof(mc_mdrTag_t), fileSize)) {
+		MC_ERR("mdr: '%s' tags offset out of bounds\n", path);
+		free(buf);
+		return -1;
+	}
+
+	out->numFrames = hdr->numFrames;
+	out->numTags = hdr->numTags;
+	out->fps = 15.0f;
+	out->frames = (mc_frame_t *)mc_calloc((size_t)out->numFrames, sizeof(mc_frame_t));
+	if (out->numTags > 0)
+		out->tags = (mc_tag_t *)mc_calloc(mc_safe_mul((size_t)out->numFrames, (size_t)out->numTags), sizeof(mc_tag_t));
+
+	const unsigned char *framePtr = buf + framesOfs;
+
+	/* Cache pointers to each frame's bone array so we can re-evaluate them per surface vertex.
+	   For compressed frames we decompress into a temporary buffer. */
+	mc_mdrBone_t *decompBones = NULL;
+	const mc_mdrBone_t **frameBones = (const mc_mdrBone_t **)mc_calloc((size_t)hdr->numFrames, sizeof(*frameBones));
+	if (isCompressed) {
+		decompBones = (mc_mdrBone_t *)mc_calloc(mc_safe_mul((size_t)hdr->numFrames, (size_t)hdr->numBones), sizeof(mc_mdrBone_t));
+	}
 	for (int f = 0; f < hdr->numFrames; ++f) {
-		const mc_mdrFrameHeader_t *fh = (const mc_mdrFrameHeader_t *)(framePtr + (size_t)f * boneStride);
-		frameBones[f] = (const mc_mdrBone_t *)((const unsigned char *)fh + sizeof(mc_mdrFrameHeader_t));
-		mc_q_strncpy(out->frames[f].name, fh->name, sizeof(out->frames[f].name));
-		for (int k = 0; k < 3; ++k) {
-			out->frames[f].bounds[0][k] = fh->bounds[0][k];
-			out->frames[f].bounds[1][k] = fh->bounds[1][k];
-			out->frames[f].localOrigin[k] = fh->localOrigin[k];
+		const unsigned char *fp = framePtr + (size_t)f * boneStride;
+		if (isCompressed) {
+			const mc_mdrCompFrameHeader_t *cfh = (const mc_mdrCompFrameHeader_t *)fp;
+			for (int k = 0; k < 3; ++k) {
+				out->frames[f].bounds[0][k] = cfh->bounds[0][k];
+				out->frames[f].bounds[1][k] = cfh->bounds[1][k];
+				out->frames[f].localOrigin[k] = cfh->localOrigin[k];
+			}
+			out->frames[f].radius = cfh->radius;
+			out->frames[f].name[0] = '\0';
+			const unsigned char *boneData = fp + sizeof(mc_mdrCompFrameHeader_t);
+			for (int j = 0; j < hdr->numBones; ++j) {
+				mc_mdr_uncompress_bone(
+					decompBones[(size_t)f * hdr->numBones + j].matrix,
+					boneData + (size_t)j * MC_COMP_BONE_BYTES);
+			}
+			frameBones[f] = &decompBones[(size_t)f * hdr->numBones];
+		} else {
+			const mc_mdrFrameHeader_t *fh = (const mc_mdrFrameHeader_t *)fp;
+			frameBones[f] = (const mc_mdrBone_t *)(fp + sizeof(mc_mdrFrameHeader_t));
+			mc_q_strncpy(out->frames[f].name, fh->name, sizeof(out->frames[f].name));
+			for (int k = 0; k < 3; ++k) {
+				out->frames[f].bounds[0][k] = fh->bounds[0][k];
+				out->frames[f].bounds[1][k] = fh->bounds[1][k];
+				out->frames[f].localOrigin[k] = fh->localOrigin[k];
+			}
+			out->frames[f].radius = fh->radius;
 		}
-		out->frames[f].radius = fh->radius;
 	}
 
 	/* Mirror the bone hierarchy into mc_model_t::joints / jointPoses so a
@@ -242,10 +322,20 @@ int mc_load_mdr(const char *path, mc_model_t *out) {
 	out->numLODs = hdr->numLODs;
 	const mc_mdrLOD_t *lod = (const mc_mdrLOD_t *)(buf + hdr->ofsLODs);
 	for (int lodLevel = 0; lodLevel < hdr->numLODs; ++lodLevel) {
+		size_t lodOfs = (size_t)((const unsigned char *)lod - buf);
+		if (!mc_bounds_check(lodOfs, sizeof(mc_mdrLOD_t), fileSize)) {
+			MC_ERR("mdr: '%s' LOD %d header out of bounds\n", path, lodLevel);
+			free(decompBones); free(frameBones); free(buf); mc_model_free(out); return -1;
+		}
 		const mc_mdrSurface_t *surf =
 			(const mc_mdrSurface_t *)((const unsigned char *)lod + lod->ofsSurfaces);
 
 		for (int s = 0; s < lod->numSurfaces; ++s) {
+			size_t surfOfs = (size_t)((const unsigned char *)surf - buf);
+			if (!mc_bounds_check(surfOfs, sizeof(mc_mdrSurface_t), fileSize)) {
+				MC_ERR("mdr: '%s' LOD %d surface %d header out of bounds\n", path, lodLevel, s);
+				free(decompBones); free(frameBones); free(buf); mc_model_free(out); return -1;
+			}
 			mc_surface_t *dst = mc_model_add_surface(out);
 			mc_q_strncpy(dst->name, surf->name, sizeof(dst->name));
 			mc_q_strncpy(dst->shader, surf->shader, sizeof(dst->shader));
@@ -381,10 +471,16 @@ int mc_load_mdr(const char *path, mc_model_t *out) {
 	}
 
 	free(frameBones);
+	free(decompBones);
+
+	int logFrames = hdr->numFrames;
+	int logBones = hdr->numBones;
+	int logTags = hdr->numTags;
 	free(buf);
 
-	MC_LOG("loaded mdr '%s': %d frames, %d bones, %d surfaces (LOD0), %d tags\n", path, hdr->numFrames, hdr->numBones,
-		   lod->numSurfaces, hdr->numTags);
+	MC_LOG("loaded mdr '%s': %d frames, %d bones, %d tags%s\n", path, logFrames, logBones,
+		   logTags, isCompressed ? " (compressed)" : "");
+
 	return 0;
 }
 
@@ -405,7 +501,7 @@ static void mdr_reserve(mdr_buf_t *b, size_t extra) {
 	size_t newCap = b->cap ? b->cap : 4096;
 	while (newCap < b->size + extra)
 		newCap *= 2;
-	b->data = (unsigned char *)realloc(b->data, newCap);
+	b->data = (unsigned char *)mc_realloc(b->data, newCap);
 	b->cap = newCap;
 }
 
@@ -418,10 +514,6 @@ static size_t mdr_append(mdr_buf_t *b, const void *src, size_t n) {
 		memset(b->data + off, 0, n);
 	b->size += n;
 	return off;
-}
-
-static void mdr_patch_int(mdr_buf_t *b, size_t off, int value) {
-	memcpy(b->data + off, &value, sizeof(int));
 }
 
 /* Build a row-major 3x4 affine matrix from TRS. */
@@ -533,10 +625,10 @@ int mc_save_mdr(const char *path, const mc_model_t *m) {
 	float (*absFrame)[4] = NULL; /* numFrames * numJoints rows of 3x4 */
 	float (*invBind)[4]  = NULL; /* numJoints rows of 3x4 */
 	if (hasSkel) {
-		absFrame = (float (*)[4])malloc(sizeof(float[3][4]) * (size_t)numFrames * (size_t)m->numJoints);
-		invBind  = (float (*)[4])malloc(sizeof(float[3][4]) * (size_t)m->numJoints);
+		absFrame = (float (*)[4])mc_malloc(mc_safe_mul3(sizeof(float[3][4]), (size_t)numFrames, (size_t)m->numJoints));
+		invBind  = (float (*)[4])mc_malloc(sizeof(float[3][4]) * (size_t)m->numJoints);
 		/* Bind: walk parents (assume parent < j). */
-		float (*absBind)[3][4] = (float (*)[3][4])malloc(sizeof(float[3][4]) * (size_t)m->numJoints);
+		float (*absBind)[3][4] = (float (*)[3][4])mc_malloc(sizeof(float[3][4]) * (size_t)m->numJoints);
 		for (int j = 0; j < m->numJoints; ++j) {
 			float local[3][4];
 			mdr_trs_to_m34(m->joints[j].bindTrans, m->joints[j].bindRot, m->joints[j].bindScale, local);
@@ -554,7 +646,7 @@ int mc_save_mdr(const char *path, const mc_model_t *m) {
 			memcpy(&invBind[(size_t)j * 3], inv, sizeof(inv));
 		}
 		/* Per-frame absolute matrices. */
-		float (*tmp)[3][4] = (float (*)[3][4])malloc(sizeof(float[3][4]) * (size_t)m->numJoints);
+		float (*tmp)[3][4] = (float (*)[3][4])mc_malloc(sizeof(float[3][4]) * (size_t)m->numJoints);
 		for (int f = 0; f < numFrames; ++f) {
 			for (int j = 0; j < m->numJoints; ++j) {
 				const mc_joint_pose_t *jp = &m->jointPoses[(size_t)f * (size_t)m->numJoints + j];

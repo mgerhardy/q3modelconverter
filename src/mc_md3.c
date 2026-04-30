@@ -40,8 +40,32 @@ int mc_load_md3(const char *path, mc_model_t *out) {
 	mc_model_init(out);
 	out->numFrames = hdr->numFrames;
 
+	/* Validate header counts and offsets against file size. */
+	if (hdr->numFrames < 0 || hdr->numTags < 0 || hdr->numSurfaces < 0) {
+		MC_ERR("md3: negative counts in header\n");
+		free(buf);
+		return -1;
+	}
+	if (!mc_bounds_check(hdr->ofsFrames,
+			(size_t)hdr->numFrames * sizeof(mc_md3Frame_t), size)) {
+		MC_ERR("md3: frames offset/count out of bounds\n");
+		free(buf);
+		return -1;
+	}
+	if (!mc_bounds_check(hdr->ofsTags,
+			(size_t)hdr->numFrames * (size_t)hdr->numTags * sizeof(mc_md3Tag_t), size)) {
+		MC_ERR("md3: tags offset/count out of bounds\n");
+		free(buf);
+		return -1;
+	}
+	if ((size_t)hdr->ofsSurfaces > size) {
+		MC_ERR("md3: surfaces offset out of bounds\n");
+		free(buf);
+		return -1;
+	}
+
 	/* Frames. */
-	out->frames = (mc_frame_t *)calloc((size_t)hdr->numFrames, sizeof(mc_frame_t));
+	out->frames = (mc_frame_t *)mc_calloc((size_t)hdr->numFrames, sizeof(mc_frame_t));
 	mc_md3Frame_t *frames = (mc_md3Frame_t *)(buf + hdr->ofsFrames);
 	for (int i = 0; i < hdr->numFrames; ++i) {
 		out->frames[i].bounds[0][0] = frames[i].bounds[0][0];
@@ -60,7 +84,7 @@ int mc_load_md3(const char *path, mc_model_t *out) {
 	/* Tags. */
 	out->numTags = hdr->numTags;
 	if (hdr->numTags > 0) {
-		out->tags = (mc_tag_t *)calloc((size_t)hdr->numFrames * (size_t)hdr->numTags, sizeof(mc_tag_t));
+		out->tags = (mc_tag_t *)mc_calloc(mc_safe_mul((size_t)hdr->numFrames, (size_t)hdr->numTags), sizeof(mc_tag_t));
 		mc_md3Tag_t *tags = (mc_md3Tag_t *)(buf + hdr->ofsTags);
 		for (int f = 0; f < hdr->numFrames; ++f) {
 			for (int t = 0; t < hdr->numTags; ++t) {
@@ -75,15 +99,35 @@ int mc_load_md3(const char *path, mc_model_t *out) {
 
 	/* Surfaces. */
 	out->numSurfaces = hdr->numSurfaces;
-	out->surfaces = (mc_surface_t *)calloc((size_t)hdr->numSurfaces, sizeof(mc_surface_t));
+	out->surfaces = (mc_surface_t *)mc_calloc((size_t)hdr->numSurfaces, sizeof(mc_surface_t));
 	unsigned char *surfPtr = buf + hdr->ofsSurfaces;
 	for (int i = 0; i < hdr->numSurfaces; ++i) {
+		if (!mc_bounds_check(surfPtr - buf, sizeof(mc_md3Surface_t), size)) {
+			MC_ERR("md3: surface %d header out of bounds\n", i);
+			free(buf); mc_model_free(out); return -1;
+		}
 		mc_md3Surface_t *surf = (mc_md3Surface_t *)surfPtr;
 		if (surf->ident != MD3_SURFACE_IDENT) {
 			MC_ERR("md3: surface %d has bad ident\n", i);
 			free(buf);
 			mc_model_free(out);
 			return -1;
+		}
+		if (surf->numVerts < 0 || surf->numTriangles < 0 || surf->numShaders < 0) {
+			MC_ERR("md3: surface %d has negative counts\n", i);
+			free(buf); mc_model_free(out); return -1;
+		}
+		size_t surfBase = (size_t)(surfPtr - buf);
+		if (!mc_bounds_check(surfBase + surf->ofsShaders,
+				(size_t)surf->numShaders * sizeof(mc_md3Shader_t), size) ||
+			!mc_bounds_check(surfBase + surf->ofsTriangles,
+				(size_t)surf->numTriangles * sizeof(mc_md3Triangle_t), size) ||
+			!mc_bounds_check(surfBase + surf->ofsSt,
+				(size_t)surf->numVerts * sizeof(mc_md3St_t), size) ||
+			!mc_bounds_check(surfBase + surf->ofsXyzNormals,
+				(size_t)hdr->numFrames * (size_t)surf->numVerts * sizeof(mc_md3XyzNormal_t), size)) {
+			MC_ERR("md3: surface %d data offsets out of bounds\n", i);
+			free(buf); mc_model_free(out); return -1;
 		}
 		mc_surface_t *dst = &out->surfaces[i];
 		mc_q_strncpy(dst->name, surf->name, sizeof(dst->name));
@@ -120,6 +164,10 @@ int mc_load_md3(const char *path, mc_model_t *out) {
 		}
 
 		surfPtr += surf->ofsEnd;
+		if (surfPtr < buf || surfPtr > buf + size) {
+			MC_ERR("md3: surface %d ofsEnd out of bounds\n", i);
+			free(buf); mc_model_free(out); return -1;
+		}
 	}
 
 	free(buf);
@@ -177,7 +225,7 @@ int mc_save_md3(const char *path, const mc_model_t *m) {
 	int frameSize = numFrames * sizeof(mc_md3Frame_t);
 	int tagSize = numFrames * m->numTags * sizeof(mc_md3Tag_t);
 
-	int *surfSizes = (int *)calloc((size_t)m->numSurfaces, sizeof(int));
+	int *surfSizes = (int *)mc_calloc((size_t)m->numSurfaces, sizeof(int));
 	int totalSurfBytes = 0;
 	for (int i = 0; i < m->numSurfaces; ++i) {
 		const mc_surface_t *s = &m->surfaces[i];
@@ -195,7 +243,7 @@ int mc_save_md3(const char *path, const mc_model_t *m) {
 	int ofsSurfaces = ofsTags + tagSize;
 	int totalSize = ofsSurfaces + totalSurfBytes;
 
-	unsigned char *buf = (unsigned char *)calloc(1, (size_t)totalSize);
+	unsigned char *buf = (unsigned char *)mc_calloc(1, (size_t)totalSize);
 	if (!buf) {
 		free(surfSizes);
 		return -1;

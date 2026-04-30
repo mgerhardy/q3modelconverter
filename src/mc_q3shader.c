@@ -511,7 +511,7 @@ static void shader_apply(mc_model_t *m, const char *name, const char *body, size
 		   stripped-down approximation from the parsed metadata. */
 		if (body && body_len > 0) {
 			free(s->q3_shader_body);
-			s->q3_shader_body = (char *)malloc(body_len + 1);
+			s->q3_shader_body = (char *)mc_malloc(body_len + 1);
 			if (s->q3_shader_body) {
 				memcpy(s->q3_shader_body, body, body_len);
 				s->q3_shader_body[body_len] = 0;
@@ -631,7 +631,7 @@ static int parse_q3skin(const unsigned char *raw, size_t sz, mc_skin_entry_t **o
 			continue;
 		if (n == cap) {
 			cap = cap ? cap * 2 : 8;
-			list = (mc_skin_entry_t *)realloc(list, (size_t)cap * sizeof(mc_skin_entry_t));
+			list = (mc_skin_entry_t *)mc_realloc(list, (size_t)cap * sizeof(mc_skin_entry_t));
 		}
 		mc_q_strncpy(list[n].surface, sname, sizeof(list[n].surface));
 		mc_q_strncpy(list[n].shader, texture, sizeof(list[n].shader));
@@ -702,11 +702,17 @@ int mc_load_q3skin(const char *path, mc_model_t *m) {
 /* Auto-discover .shader files under the asset roots                  */
 /* ------------------------------------------------------------------ */
 
+
 #ifdef _WIN32
 #include <windows.h>
+#include <sys/stat.h>
+#define MC_STAT_STRUCT _stat
+#define MC_STAT_FUNC _stat
 #else
 #include <dirent.h>
 #include <sys/stat.h>
+#define MC_STAT_STRUCT stat
+#define MC_STAT_FUNC stat
 #endif
 
 static void scan_dir_for_shaders(const char *dir, const char *const *asset_roots, mc_model_t *m, int depth, int *count);
@@ -725,7 +731,7 @@ void mc_q3shader_set_max_depth(int depth) {
 
 void mc_q3shader_add_search_path(const char *dir) {
 	if (!dir || !dir[0]) return;
-	g_shader_extra_paths = (char **)realloc(g_shader_extra_paths,
+	g_shader_extra_paths = (char **)mc_realloc(g_shader_extra_paths,
 		sizeof(char *) * (size_t)(g_shader_extra_count + 1));
 	g_shader_extra_paths[g_shader_extra_count++] = strdup(dir);
 }
@@ -737,6 +743,34 @@ static void try_apply_shader_file(const char *path, mc_model_t *m, int *count) {
 		return;
 	if (mc_load_q3shader(path, m) == 0)
 		++(*count);
+}
+
+/* Callback context for PK3 shader scanning. */
+typedef struct {
+	mc_model_t *m;
+	int *count;
+} pk3_shader_ctx_t;
+
+static void pk3_shader_cb(const char *pk3, const char *entry, void *user) {
+	pk3_shader_ctx_t *ctx = (pk3_shader_ctx_t *)user;
+	size_t sz = 0;
+	unsigned char *data = mc_pk3_read_entry(pk3, entry, &sz);
+	if (!data) return;
+	/* mc_load_q3shader expects a file path; write to a temp file. */
+	char tmp[MC_MAX_PATH];
+	snprintf(tmp, sizeof(tmp), "/tmp/mc_pk3_%s", strrchr(entry, '/') ? strrchr(entry, '/') + 1 : entry);
+	if (mc_write_file(tmp, data, sz) == 0) {
+		if (mc_load_q3shader(tmp, ctx->m) == 0)
+			++(*ctx->count);
+		remove(tmp);
+	}
+	free(data);
+}
+
+static void try_apply_pk3(const char *path, mc_model_t *m, int *count) {
+	if (!mc_pk3_is_pk3(path)) return;
+	pk3_shader_ctx_t ctx = { m, count };
+	mc_pk3_for_each(path, ".shader", pk3_shader_cb, &ctx);
 }
 
 static void scan_dir_for_shaders(const char *dir, const char *const *asset_roots, mc_model_t *m, int depth, int *count) {
@@ -757,8 +791,10 @@ static void scan_dir_for_shaders(const char *dir, const char *const *asset_roots
 		snprintf(child, sizeof(child), "%s\\%s", dir, fd.cFileName);
 		if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 			scan_dir_for_shaders(child, asset_roots, m, depth + 1, count);
-		else
+		else {
 			try_apply_shader_file(child, m, count);
+			try_apply_pk3(child, m, count);
+		}
 	} while (FindNextFileA(h, &fd));
 	FindClose(h);
 #else
@@ -771,13 +807,15 @@ static void scan_dir_for_shaders(const char *dir, const char *const *asset_roots
 			continue;
 		char child[MC_MAX_PATH];
 		snprintf(child, sizeof(child), "%s/%s", dir, de->d_name);
-		struct stat st;
-		if (stat(child, &st) != 0)
+		struct MC_STAT_STRUCT st;
+		if (MC_STAT_FUNC(child, &st) != 0)
 			continue;
 		if (S_ISDIR(st.st_mode))
 			scan_dir_for_shaders(child, asset_roots, m, depth + 1, count);
-		else if (S_ISREG(st.st_mode))
+		else if (S_ISREG(st.st_mode)) {
 			try_apply_shader_file(child, m, count);
+			try_apply_pk3(child, m, count);
+		}
 	}
 	closedir(d);
 #endif
@@ -788,15 +826,15 @@ int mc_autoload_shaders(const char *const *asset_roots, mc_model_t *m) {
 		return 0;
 	int count = 0;
 	/* Walk asset_roots first (the canonical Q3 layout: <root>/scripts and
-	   <root>/*.pk3dir/scripts), then any --shader-path the user added.
+	   <root>/ *.pk3dir/scripts), then any --shader-path the user added.
 	   Extra paths are scanned recursively from their root so users can
 	   point at "baseq3/" and have us find scripts/ underneath. */
 	for (int i = 0; asset_roots && asset_roots[i]; ++i) {
 		/* Look for a "scripts" sibling (the standard Q3 layout). */
 		char scripts[MC_MAX_PATH];
 		snprintf(scripts, sizeof(scripts), "%s/scripts", asset_roots[i]);
-		struct stat st;
-		if (stat(scripts, &st) == 0 && S_ISDIR(st.st_mode)) {
+		struct MC_STAT_STRUCT st;
+		if (MC_STAT_FUNC(scripts, &st) == 0 && S_ISDIR(st.st_mode)) {
 			scan_dir_for_shaders(scripts, asset_roots, m, 0, &count);
 		}
 		/* Also look for *.pk3dir/scripts under this root. */
@@ -827,8 +865,8 @@ int mc_autoload_shaders(const char *const *asset_roots, mc_model_t *m) {
 					continue;
 				char sub[MC_MAX_PATH];
 				snprintf(sub, sizeof(sub), "%s/%s/scripts", pk3dirs, de->d_name);
-				struct stat sst;
-				if (stat(sub, &sst) == 0 && S_ISDIR(sst.st_mode))
+				struct MC_STAT_STRUCT sst;
+				if (MC_STAT_FUNC(sub, &sst) == 0 && S_ISDIR(sst.st_mode))
 					scan_dir_for_shaders(sub, asset_roots, m, 0, &count);
 			}
 			closedir(d);
@@ -837,8 +875,8 @@ int mc_autoload_shaders(const char *const *asset_roots, mc_model_t *m) {
 	}
 	/* Extra --shader-path roots: scan recursively for any *.shader. */
 	for (int i = 0; i < g_shader_extra_count; ++i) {
-		struct stat st;
-		if (stat(g_shader_extra_paths[i], &st) == 0 && S_ISDIR(st.st_mode))
+		struct MC_STAT_STRUCT st;
+		if (MC_STAT_FUNC(g_shader_extra_paths[i], &st) == 0 && S_ISDIR(st.st_mode))
 			scan_dir_for_shaders(g_shader_extra_paths[i], asset_roots, m, 0, &count);
 	}
 	if (count)

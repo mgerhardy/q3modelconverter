@@ -11,7 +11,16 @@ the file is later re-imported by the same tool.
 */
 
 #define CGLTF_WRITE_IMPLEMENTATION
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
+#endif
 #include "cgltf_write.h"
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #include "mc_common.h"
 
@@ -35,7 +44,7 @@ static void bin_reserve(bin_buf_t *b, size_t extra) {
 	size_t cap = b->cap ? b->cap : 4096;
 	while (cap < b->size + extra)
 		cap *= 2;
-	b->data = (unsigned char *)realloc(b->data, cap);
+	b->data = (unsigned char *)mc_realloc(b->data, cap);
 	b->cap = cap;
 }
 
@@ -60,7 +69,7 @@ static char *dup_str(const char *s) {
 	if (!s)
 		return NULL;
 	size_t n = strlen(s) + 1;
-	char *r = (char *)malloc(n);
+	char *r = (char *)mc_malloc(n);
 	memcpy(r, s, n);
 	return r;
 }
@@ -88,7 +97,7 @@ static char *guess_mime(const char *path) {
 /* Allocator helpers                                                  */
 /* ------------------------------------------------------------------ */
 
-#define ALLOC_ARR(T, n) ((T *)calloc((n) > 0 ? (n) : 1, sizeof(T)))
+#define ALLOC_ARR(T, n) ((T *)mc_calloc((n) > 0 ? (n) : 1, sizeof(T)))
 
 /* Convert a Q3 tag axis (3 row-vectors: forward, left, up) into a unit
    quaternion stored as (x, y, z, w) - the order glTF uses. */
@@ -388,7 +397,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 	int firstMeshNode = 1 + playerPivots;
 	int firstTagNode = firstMeshNode + totalSurfs;
 	int firstJointNode = firstTagNode + totalTags;
-	cgltf_node *nodes = (cgltf_node *)calloc((size_t)totalNodes, sizeof(cgltf_node));
+	cgltf_node *nodes = (cgltf_node *)mc_calloc((size_t)totalNodes, sizeof(cgltf_node));
 
 	cgltf_data data;
 	memset(&data, 0, sizeof(data));
@@ -404,7 +413,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 		size_t cap = 16384;
 		for (int i = 0; i < m->numSkins; ++i)
 			cap += 64 + (size_t)m->skins[i].numEntries * 192;
-		char *buf = (char *)malloc(cap);
+		char *buf = (char *)mc_malloc(cap);
 		if (!buf)
 			return -1;
 		size_t off = 0;
@@ -632,7 +641,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 		/* ---------- INDICES (uint32) ----------
 		   Q3 stores triangles CW from outside; glTF expects CCW.  Build a
 		   flipped copy on the fly. */
-		int *flippedIdx = (int *)malloc((size_t)s->numTris * 3 * sizeof(int));
+		int *flippedIdx = (int *)mc_malloc((size_t)s->numTris * 3 * sizeof(int));
 		for (int t = 0; t < s->numTris; ++t) {
 			flippedIdx[t * 3 + 0] = s->indices[t * 3 + 0];
 			flippedIdx[t * 3 + 1] = s->indices[t * 3 + 2];
@@ -713,7 +722,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 			mesh->weights = ALLOC_ARR(cgltf_float, numFrames - 1);
 			mesh->weights_count = numFrames - 1;
 
-			float *delta = (float *)malloc(sizeof(float) * (size_t)s->numVerts * 3);
+			float *delta = (float *)mc_malloc(sizeof(float) * (size_t)s->numVerts * 3);
 			for (int f = 1; f < numFrames; ++f) {
 				const float *cur = s->xyz + (size_t)f * s->numVerts * 3;
 				float dmin[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
@@ -788,7 +797,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 			if (s->q3_shader_body && s->q3_shader_body[0])
 				body_b64 = mc_b64_encode(s->q3_shader_body, strlen(s->q3_shader_body));
 			size_t cap = MC_MAX_PATH * 4 + 128 + (body_b64 ? strlen(body_b64) + 32 : 0);
-			char *buf = (char *)malloc(cap);
+			char *buf = (char *)mc_malloc(cap);
 			if (buf) {
 				size_t off = 0;
 				off += (size_t)snprintf(buf + off, cap - off, "{");
@@ -846,7 +855,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 	cgltf_accessor *aIBM = NULL;
 	float *ibmAbsMats = NULL; /* keep absolute matrices for skin block. */
 	if (hasSkin) {
-		float *absMats = (float *)calloc((size_t)m->numJoints * 16, sizeof(float));
+		float *absMats = (float *)mc_calloc((size_t)m->numJoints * 16, sizeof(float));
 		for (int j = 0; j < m->numJoints; ++j) {
 			float local[16];
 			const float *t = m->joints[j].bindTrans;
@@ -882,7 +891,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 				memcpy(dst, local, sizeof(local));
 			}
 		}
-		float *ibm = (float *)calloc((size_t)m->numJoints * 16, sizeof(float));
+		float *ibm = (float *)mc_calloc((size_t)m->numJoints * 16, sizeof(float));
 		for (int j = 0; j < m->numJoints; ++j) {
 			const float *M = &absMats[j * 16];
 			float inv[16];
@@ -1009,7 +1018,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 			float fps = a->fps > 0.0f ? a->fps : 15.0f;
 
 			/* Time accessor (shared across this anim's samplers). */
-			float *times = (float *)malloc(sizeof(float) * (size_t)N);
+			float *times = (float *)mc_malloc(sizeof(float) * (size_t)N);
 			for (int t = 0; t < N; ++t)
 				times[t] = (float)t / fps;
 			size_t timeOfs = bin_append(&bin, times, sizeof(float) * (size_t)N);
@@ -1033,7 +1042,7 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 			anim->channels_count = totalSurfs + extraChans + jointChans + tagChans;
 
 			int W = numFrames - 1; /* morph weight count */
-			float *weightBuf = (float *)calloc((size_t)N * (size_t)W, sizeof(float));
+			float *weightBuf = (float *)mc_calloc((size_t)N * (size_t)W, sizeof(float));
 
 			for (int si = 0; si < totalSurfs; ++si) {
 				const mc_surface_t *s = &m->surfaces[si];
@@ -1110,10 +1119,10 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 				int isTorso = !strncmp(nm, "TORSO_", 6);
 				int isBoth = !strncmp(nm, "BOTH_", 5);
 
-				float *lowerT = (float *)calloc((size_t)N * 3, sizeof(float));
-				float *lowerR = (float *)calloc((size_t)N * 4, sizeof(float));
-				float *upperT = (float *)calloc((size_t)N * 3, sizeof(float));
-				float *upperR = (float *)calloc((size_t)N * 4, sizeof(float));
+				float *lowerT = (float *)mc_calloc((size_t)N * 3, sizeof(float));
+				float *lowerR = (float *)mc_calloc((size_t)N * 4, sizeof(float));
+				float *upperT = (float *)mc_calloc((size_t)N * 3, sizeof(float));
+				float *upperR = (float *)mc_calloc((size_t)N * 4, sizeof(float));
 
 				for (int t = 0; t < N; ++t) {
 					/* Lower frame for this sample (drives pivot_upper). */
@@ -1224,8 +1233,8 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 					(void)clamped;
 				}
 				for (int j = 0; j < m->numJoints; ++j) {
-					float *transBuf = (float *)malloc(sizeof(float) * (size_t)N * 3);
-					float *rotBuf   = (float *)malloc(sizeof(float) * (size_t)N * 4);
+					float *transBuf = (float *)mc_malloc(sizeof(float) * (size_t)N * 3);
+					float *rotBuf   = (float *)mc_malloc(sizeof(float) * (size_t)N * 4);
 					for (int t = 0; t < N; ++t) {
 						int f = firstFrame + t;
 						if (f >= m->numFrames) f = m->numFrames - 1;
@@ -1289,8 +1298,8 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 				int firstFrame = a->firstFrame;
 				if (firstFrame < 0) firstFrame = 0;
 				for (int ti = 0; ti < m->numTags; ++ti) {
-					float *transBuf = (float *)malloc(sizeof(float) * (size_t)N * 3);
-					float *rotBuf   = (float *)malloc(sizeof(float) * (size_t)N * 4);
+					float *transBuf = (float *)mc_malloc(sizeof(float) * (size_t)N * 3);
+					float *rotBuf   = (float *)mc_malloc(sizeof(float) * (size_t)N * 4);
 					for (int t = 0; t < N; ++t) {
 						int f = firstFrame + t;
 						if (f >= m->numFrames) f = m->numFrames - 1;
@@ -1544,13 +1553,13 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 	cgltf_skin *skin = NULL;
 	if (hasSkin) {
 		/* Per-joint child arrays (sized by counting children). */
-		int *childCount = (int *)calloc((size_t)m->numJoints, sizeof(int));
+		int *childCount = (int *)mc_calloc((size_t)m->numJoints, sizeof(int));
 		for (int j = 0; j < m->numJoints; ++j) {
 			int p = m->joints[j].parent;
 			if (p >= 0 && p < m->numJoints) ++childCount[p];
 		}
-		cgltf_node ***childArrs = (cgltf_node ***)calloc((size_t)m->numJoints, sizeof(*childArrs));
-		int *childFill = (int *)calloc((size_t)m->numJoints, sizeof(int));
+		cgltf_node ***childArrs = (cgltf_node ***)mc_calloc((size_t)m->numJoints, sizeof(*childArrs));
+		int *childFill = (int *)mc_calloc((size_t)m->numJoints, sizeof(int));
 		for (int j = 0; j < m->numJoints; ++j) {
 			if (childCount[j] > 0)
 				childArrs[j] = ALLOC_ARR(cgltf_node *, childCount[j]);
@@ -1568,7 +1577,6 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 			memcpy(jn->scale,       m->joints[j].bindScale, sizeof(jn->scale));
 			int p = m->joints[j].parent;
 			if (p >= 0 && p < m->numJoints) {
-				cgltf_node *pn = &nodes[firstJointNode + p];
 				childArrs[p][childFill[p]++] = jn;
 			} else {
 				++rootJointCount;
@@ -1647,9 +1655,98 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 		free(bin.data);
 	}
 
-	/* The loose strings (name, uri, ...) we duplicated leak here; cgltf
-	   does not own them.  Acceptable for a one-shot CLI tool. */
-	(void)nodes;
+	/* ---- Free all dynamically allocated cgltf_data members ---- */
+
+	/* Strings on the asset. */
+	free(data.asset.version);
+	free(data.asset.generator);
+	free(data.asset.extras.data);
+
+	/* Per-node strings and child arrays. */
+	for (cgltf_size i = 0; i < data.nodes_count; ++i) {
+		free(nodes[i].name);
+		free(nodes[i].extras.data);
+		free(nodes[i].children);
+	}
+	free(nodes);
+
+	/* Per-mesh strings and sub-arrays. */
+	for (cgltf_size i = 0; i < data.meshes_count; ++i) {
+		free(meshes[i].name);
+		for (cgltf_size p = 0; p < meshes[i].primitives_count; ++p) {
+			cgltf_primitive *pr = &meshes[i].primitives[p];
+			for (cgltf_size a = 0; a < pr->attributes_count; ++a)
+				free(pr->attributes[a].name);
+			free(pr->attributes);
+			for (cgltf_size t = 0; t < pr->targets_count; ++t) {
+				for (cgltf_size a = 0; a < pr->targets[t].attributes_count; ++a)
+					free(pr->targets[t].attributes[a].name);
+				free(pr->targets[t].attributes);
+			}
+			free(pr->targets);
+		}
+		free(meshes[i].primitives);
+		free(meshes[i].weights);
+	}
+	free(meshes);
+
+	/* Per-material strings. */
+	for (cgltf_size i = 0; i < data.materials_count; ++i) {
+		free(materials[i].name);
+		free(materials[i].extras.data);
+	}
+	free(materials);
+
+	/* Per-image strings. */
+	if (data.images) {
+		for (cgltf_size i = 0; i < data.images_count; ++i) {
+			free(images[i].name);
+			free(images[i].uri);
+			free(images[i].mime_type);
+		}
+		free(images);
+	}
+
+	/* Per-texture strings. */
+	if (data.textures) {
+		for (cgltf_size i = 0; i < data.textures_count; ++i)
+			free(textures[i].name);
+		free(textures);
+	}
+
+	free(samplers);
+
+	/* Per-animation strings and sub-arrays. */
+	if (data.animations) {
+		for (cgltf_size i = 0; i < data.animations_count; ++i) {
+			free(data.animations[i].name);
+			free(data.animations[i].extras.data);
+			free(data.animations[i].samplers);
+			free(data.animations[i].channels);
+		}
+		free(data.animations);
+	}
+
+	/* Skin. */
+	if (data.skins) {
+		free(skin->name);
+		free(skin->joints);
+		free(skin);
+	}
+
+	/* Per-scene strings and node arrays. */
+	for (cgltf_size i = 0; i < data.scenes_count; ++i) {
+		free(scenes[i].name);
+		free(scenes[i].nodes);
+	}
+	free(scenes);
+
+	/* Per-buffer strings. */
+	free(buffers[0].uri);
+	free(buffers);
+
+	free(views);
+	free(accessors);
 
 	return rc == cgltf_result_success ? 0 : -1;
 }

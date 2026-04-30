@@ -492,6 +492,12 @@ int mc_load_animation_cfg(const char *path, mc_model_t *m);
 int mc_save_animation_cfg(const char *path, const mc_model_t *m);
 mc_animation_t *mc_model_add_animation(mc_model_t *m);
 
+/* PK3 (zip) archive reading. */
+int mc_pk3_is_pk3(const char *path);
+unsigned char *mc_pk3_read_entry(const char *pk3_path, const char *entry_name, size_t *out_size);
+int mc_pk3_for_each(const char *pk3_path, const char *suffix,
+                    void (*cb)(const char *pk3, const char *entry, void *user), void *user);
+
 /* Verbosity flag.
    - mc_verbose <  0  : quiet  (errors only)
    - mc_verbose == 0  : default (errors + warnings + info)
@@ -525,5 +531,43 @@ extern int mc_verbose;
 	} while (0)
 /* Backwards-compat: existing call sites stay verbose-gated like before. */
 #define MC_LOG MC_DEBUG
+
+/* Bounds-check helper for binary file readers.  Verifies that the byte
+   range [ofs, ofs+len) falls entirely within [0, filesize).  Evaluates
+   to 1 on success, 0 on failure.  Handles unsigned overflow safely. */
+static inline int mc_bounds_check(size_t ofs, size_t len, size_t filesize) {
+	return (ofs <= filesize && len <= filesize - ofs);
+}
+
+/* Checked multiplication for allocation sizes.  Returns a*b if it fits
+   in size_t, or 0 on overflow (which mc_calloc/mc_malloc will then
+   handle as a zero-byte allocation — safe but useless, so callers
+   should validate counts before reaching this point). */
+static inline size_t mc_safe_mul(size_t a, size_t b) {
+	if (a != 0 && b > (size_t)-1 / a) return 0;
+	return a * b;
+}
+static inline size_t mc_safe_mul3(size_t a, size_t b, size_t c) {
+	return mc_safe_mul(mc_safe_mul(a, b), c);
+}
+
+/* Safe allocation wrappers.  Abort with a diagnostic on OOM so callers
+   never have to NULL-check.  Use these instead of raw malloc/calloc/realloc
+   in all project .c files (vendored headers like cgltf.h are excluded). */
+static inline void *mc_malloc(size_t size) {
+	void *p = malloc(size);
+	if (!p && size) { fprintf(stderr, "[fatal] out of memory (malloc %zu)\n", size); abort(); }
+	return p;
+}
+static inline void *mc_calloc(size_t count, size_t size) {
+	void *p = calloc(count, size);
+	if (!p && count && size) { fprintf(stderr, "[fatal] out of memory (calloc %zu*%zu)\n", count, size); abort(); }
+	return p;
+}
+static inline void *mc_realloc(void *ptr, size_t size) {
+	void *p = realloc(ptr, size);
+	if (!p && size) { fprintf(stderr, "[fatal] out of memory (realloc %zu)\n", size); abort(); }
+	return p;
+}
 
 #endif /* MC_COMMON_H */

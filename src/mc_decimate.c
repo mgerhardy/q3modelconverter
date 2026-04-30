@@ -82,7 +82,7 @@ typedef struct {
 static void heap_init(heap_t *h, int hint) {
 	h->cap = hint > 16 ? hint : 16;
 	h->count = 0;
-	h->items = (heap_entry_t *)malloc(sizeof(heap_entry_t) * (size_t)h->cap);
+	h->items = (heap_entry_t *)mc_malloc(sizeof(heap_entry_t) * (size_t)h->cap);
 }
 
 static void heap_free(heap_t *h) {
@@ -93,7 +93,7 @@ static void heap_free(heap_t *h) {
 static void heap_push(heap_t *h, double cost, int v0, int v1) {
 	if (h->count == h->cap) {
 		h->cap *= 2;
-		h->items = (heap_entry_t *)realloc(h->items, sizeof(heap_entry_t) * (size_t)h->cap);
+		h->items = (heap_entry_t *)mc_realloc(h->items, sizeof(heap_entry_t) * (size_t)h->cap);
 	}
 	int i = h->count++;
 	h->items[i].cost = cost;
@@ -142,7 +142,7 @@ typedef struct {
 static void iv_push(int_vec_t *v, int x) {
 	if (v->count == v->cap) {
 		v->cap = v->cap ? v->cap * 2 : 4;
-		v->items = (int *)realloc(v->items, sizeof(int) * (size_t)v->cap);
+		v->items = (int *)mc_realloc(v->items, sizeof(int) * (size_t)v->cap);
 	}
 	v->items[v->count++] = x;
 }
@@ -208,12 +208,12 @@ static int decimate_surface(mc_surface_t *s, int numFrames, int targetTris) {
 	if (targetTris < 1) targetTris = 1;
 
 	/* --- Allocate working state ------------------------------------ */
-	qem_t *Q = (qem_t *)calloc((size_t)oldVerts, sizeof(qem_t));
-	int_vec_t *vertTris = (int_vec_t *)calloc((size_t)oldVerts, sizeof(int_vec_t));
-	int *triAlive = (int *)malloc(sizeof(int) * (size_t)oldTris);
-	int *triV = (int *)malloc(sizeof(int) * (size_t)oldTris * 3);
-	int *vertAlive = (int *)malloc(sizeof(int) * (size_t)oldVerts);
-	int *vertParent = (int *)malloc(sizeof(int) * (size_t)oldVerts);
+	qem_t *Q = (qem_t *)mc_calloc((size_t)oldVerts, sizeof(qem_t));
+	int_vec_t *vertTris = (int_vec_t *)mc_calloc((size_t)oldVerts, sizeof(int_vec_t));
+	int *triAlive = (int *)mc_malloc(sizeof(int) * (size_t)oldTris);
+	int *triV = (int *)mc_malloc(sizeof(int) * (size_t)oldTris * 3);
+	int *vertAlive = (int *)mc_malloc(sizeof(int) * (size_t)oldVerts);
+	int *vertParent = (int *)mc_malloc(sizeof(int) * (size_t)oldVerts);
 	for (int i = 0; i < oldVerts; ++i) { vertAlive[i] = 1; vertParent[i] = -1; }
 	for (int i = 0; i < oldTris; ++i) triAlive[i] = 1;
 	memcpy(triV, s->indices, sizeof(int) * (size_t)oldTris * 3);
@@ -221,16 +221,16 @@ static int decimate_surface(mc_surface_t *s, int numFrames, int targetTris) {
 	/* Per-vertex (frame_count x 3) positions, accumulated independently
 	   per frame - this is the buffer we update in place during
 	   collapses and read back at the end. */
-	float *xyz = (float *)malloc(sizeof(float) * (size_t)numFrames * (size_t)oldVerts * 3);
+	float *xyz = (float *)mc_malloc(sizeof(float) * (size_t)numFrames * (size_t)oldVerts * 3);
 	memcpy(xyz, s->xyz, sizeof(float) * (size_t)numFrames * (size_t)oldVerts * 3);
 	float *nrm = NULL;
 	if (s->normal) {
-		nrm = (float *)malloc(sizeof(float) * (size_t)numFrames * (size_t)oldVerts * 3);
+		nrm = (float *)mc_malloc(sizeof(float) * (size_t)numFrames * (size_t)oldVerts * 3);
 		memcpy(nrm, s->normal, sizeof(float) * (size_t)numFrames * (size_t)oldVerts * 3);
 	}
 	float *st = NULL;
 	if (s->st) {
-		st = (float *)malloc(sizeof(float) * 2 * (size_t)oldVerts);
+		st = (float *)mc_malloc(sizeof(float) * 2 * (size_t)oldVerts);
 		memcpy(st, s->st, sizeof(float) * 2 * (size_t)oldVerts);
 	}
 
@@ -271,7 +271,7 @@ static int decimate_surface(mc_surface_t *s, int numFrames, int targetTris) {
 	int hashCap = 16;
 	while (hashCap < oldTris * 8) hashCap *= 2;
 	struct { uint64_t key; int tri; int side; } *eh =
-		(void *)calloc((size_t)hashCap, sizeof(*eh));
+		(void *)mc_calloc((size_t)hashCap, sizeof(*eh));
 	for (int i = 0; i < hashCap; ++i) eh[i].key = (uint64_t)-1;
 
 #define EDGE_KEY(x, y) (((uint64_t)(uint32_t)((x) < (y) ? (x) : (y)) << 32) | (uint32_t)((x) > (y) ? (x) : (y)))
@@ -451,7 +451,7 @@ static int decimate_surface(mc_surface_t *s, int numFrames, int targetTris) {
 	heap_free(&heap);
 
 	/* --- Compaction: remap surviving vertices and rebuild arrays --- */
-	int *newIdxOf = (int *)malloc(sizeof(int) * (size_t)oldVerts);
+	int *newIdxOf = (int *)mc_malloc(sizeof(int) * (size_t)oldVerts);
 	int newVerts = 0;
 	for (int i = 0; i < oldVerts; ++i) {
 		newIdxOf[i] = vertAlive[i] ? newVerts++ : -1;
@@ -467,9 +467,9 @@ static int decimate_surface(mc_surface_t *s, int numFrames, int targetTris) {
 	int newTris = 0;
 	for (int t = 0; t < oldTris; ++t) if (triAlive[t]) newTris++;
 
-	float *outXYZ = (float *)malloc(sizeof(float) * (size_t)numFrames * (size_t)newVerts * 3);
-	float *outST = (float *)malloc(sizeof(float) * 2 * (size_t)newVerts);
-	int *outIdx = (int *)malloc(sizeof(int) * (size_t)newTris * 3);
+	float *outXYZ = (float *)mc_malloc(sizeof(float) * (size_t)numFrames * (size_t)newVerts * 3);
+	float *outST = (float *)mc_malloc(sizeof(float) * 2 * (size_t)newVerts);
+	int *outIdx = (int *)mc_malloc(sizeof(int) * (size_t)newTris * 3);
 
 	for (int i = 0; i < oldVerts; ++i) {
 		if (!vertAlive[i]) continue;
@@ -506,7 +506,7 @@ static int decimate_surface(mc_surface_t *s, int numFrames, int targetTris) {
 	   the author-controlled per-vertex normals, so recomputed normals
 	   would point the wrong way and make the texture appear on the
 	   back side. */
-	float *outN = (float *)calloc((size_t)numFrames * (size_t)newVerts * 3, sizeof(float));
+	float *outN = (float *)mc_calloc((size_t)numFrames * (size_t)newVerts * 3, sizeof(float));
 	if (nrm) {
 		for (int i = 0; i < oldVerts; ++i) {
 			if (!vertAlive[i]) continue;
@@ -631,7 +631,7 @@ int mc_gen_lods(mc_model_t *m, int numLods, const float *ratios) {
 
 	/* Snapshot indices of base LOD0 surfaces so newly appended LOD>0
 	   copies don't enter the iteration. */
-	int *baseIdx = (int *)calloc((size_t)m->numSurfaces, sizeof(int));
+	int *baseIdx = (int *)mc_calloc((size_t)m->numSurfaces, sizeof(int));
 	int baseCount = 0;
 	for (int i = 0; i < m->numSurfaces; ++i) {
 		if (m->surfaces[i].lod == 0) baseIdx[baseCount++] = i;

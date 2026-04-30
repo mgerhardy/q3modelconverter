@@ -90,13 +90,13 @@ Lossy points worth knowing about:
   normals to 8-bit lat/long. Round-tripping through MD3 will introduce
   position errors up to ~0.008 units and normal errors up to ~1.4°.
 - **glTF -> MDR animation sampling:** glTF animation tracks are sampled
-  at the model `--fps` (default 24). Cubic-spline tracks are evaluated
+  at the model `--fps` (default 15). Cubic-spline tracks are evaluated
   exactly at sample points; sub-sample motion is lost.
-- **MDR compressed-frame variant** (`ofsFrames < 0`): not yet supported
-  on read. Re-export from source, or pass through ioquake3 to MD3/IQM
-  first.
-- **PK3 (zip) shader auto-discovery:** not yet implemented; extract the
-  `.pk3` to a `.pk3dir` and point `--shader-path` at it.
+- **MDR compressed-frame variant** (`ofsFrames < 0`): supported on read.
+  Compressed bones are decompressed to full 3×4 matrices transparently.
+- **PK3 (zip) shader auto-discovery:** `--shader-path` and `--asset-root`
+  accept `.pk3` files directly; shader stanzas are read from the archive
+  without manual extraction.
 
 For a deeper dive into each format (specs, reference implementations,
 hard limits, exactly where we have to be lossy), see
@@ -128,18 +128,18 @@ over name inference when present.
 
 ## Building `modelconverter`
 
-The tool is built together with the rest of the WoP source. From a
-configured CMake build directory:
+The tool is built as a standalone CMake project. From the repository root:
 
 ```bash
-cmake --build build --target modelconverter
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
 The resulting binary lives at
-`build/code/tools/modelconverter/modelconverter`. There are no runtime
+`build/modelconverter`. There are no runtime
 dependencies; it links only against the C standard library and `libm`.
 
-The source lives in `code/tools/modelconverter/` and embeds the single-file
+The source lives in `src/` and embeds the single-file
 [`cgltf`] / [`cgltf_write`] headers as well `stb` headers for image support,
 so adding the tool to your own out-of-tree build should be easy enough.
 
@@ -156,8 +156,8 @@ the tool *thinks* is in a file, run `--info` first:
 modelconverter --info -i upper.md3
 ```
 
-The same operations are also available as positional subcommands for
-people who prefer that style:
+The same operations are also available as bare positional subcommands
+for people who prefer that style:
 
 ```bash
 modelconverter info upper.md3
@@ -309,28 +309,27 @@ quantised / KTX2 file back into `modelconverter`.
 
 ---
 
-## IQM and MDR in particular
+## IQM and MDR skeletal support
 
-`modelconverter` writes **static** IQM and MDR files (no animated
-skeleton). This is enough for map objects, items and pickups; for
-skeletal animation you should keep the source `.iqm` / `.mdr` produced
-by your DCC tool's exporter.
+`modelconverter` reads and writes **fully skeletal** IQM and MDR files
+when the source model carries a skeleton (joints, per-frame TRS poses,
+per-vertex blend indices and weights). The skeleton, animation entries
+and skinning data round-trip losslessly through IQM, MDR and glTF.
+When the source has no skeleton (e.g. a plain MD3 or a static glTF)
+the writers fall back to a static single-frame output — enough for map
+objects, items and pickups.
 
-Reading IQM is supported even when a skeleton is present, but the tool
-currently bakes only the bind pose into the generic representation.
+Reading IQM preserves the full joint hierarchy, per-frame channel
+data and per-vertex BLENDINDEXES / BLENDWEIGHTS. In addition every
+frame is evaluated against the skeleton to produce baked per-frame
+xyz/normal arrays so vertex-animated consumers (MD3, glTF morph
+targets) can replay the animation too.
 
-Reading MDR is also supported and is **lossy**: every frame of the
-source is sampled, the per-vertex weights are evaluated against that
-frame's bone matrices and the result is stored as a per-frame xyz/normal
-stream. The skeleton itself is dropped. Tag origins/axes from each
-frame are preserved. Only LOD 0 (highest detail) is read; the
-compressed MDR variant (`mdrCompFrame_t`) is rejected at load time.
-
-When *writing* MDR, the tool emits one identity bone for the mesh and
-one extra bone per tag (so tag transforms survive in-engine), and
-weights every vertex 100 % to the mesh bone using its frame-0 position
-as the bind-pose offset. The resulting file is a valid MDR but its
-mesh will not animate.
+Reading MDR preserves the bone matrices, per-vertex weights (up to 4
+influences) and per-frame tag transforms. The skeleton is mirrored
+into the generic representation so it survives a round-trip through
+IQM or glTF. Only LOD 0 (highest detail) is read; the compressed MDR
+variant (`mdrCompFrame_t`) is decompressed transparently on read.
 
 ---
 

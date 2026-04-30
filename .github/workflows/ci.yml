@@ -88,10 +88,7 @@ jobs:
         working-directory: build-san
         run: ctest --output-on-failure
         env:
-          # detect_leaks=0 for now: the gltf writer leaks a handful of
-          # short-lived strings on the exit path. Real bugs (use-after-free,
-          # OOB) are still caught by asan + ubsan in halt-on-first-error mode.
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:halt_on_error=1
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
 
   gltf-validator:

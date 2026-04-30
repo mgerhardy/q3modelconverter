@@ -20,7 +20,7 @@ warning.
 - Original docs (idTech 3): <https://icculus.org/homepages/phaethon/q3a/formats/md3format.html>
 - Header in the WoP source: `worldofpadman/code/qcommon/qfiles.h`
 - Hard limits enforced by the engine:
-  - `MD3_MAX_LODS = 4`
+  - `MD3_MAX_LODS = 3`
   - `MD3_MAX_TRIANGLES = 8192` per surface
   - `MD3_MAX_VERTS = 4096` per surface
   - `MD3_MAX_SHADERS = 256` per surface
@@ -48,10 +48,9 @@ matching the spec.
   in any ioq3 fork.
 - Header in this repo: `src/mc_mdr.c` (struct definitions inline).
 
-**Lossy / unsupported**:
-- MDR's compressed-frame variant (`ofsFrames < 0`) is not implemented
-  on read. Re-export from source, or pass through ioquake3 to MD3/IQM
-  first.
+**Lossy**:
+- MDR's compressed-frame variant (`ofsFrames < 0`) is supported on read;
+  compressed bones are decompressed to full 3×4 matrices transparently.
 - MDR stores per-bone deltas in 16-bit fixed point; round-tripping a
   pose introduces small errors (sub-millimetre at typical scale).
 

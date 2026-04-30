@@ -208,6 +208,47 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 
 	iqm_view_t v = {buf, hdr};
 
+	/* Validate section offsets against file size. */
+	if (!mc_bounds_check(hdr->ofs_vertexarrays,
+			(size_t)hdr->num_vertexarrays * sizeof(iqmVertexArray_t), size) ||
+		!mc_bounds_check(hdr->ofs_meshes,
+			(size_t)hdr->num_meshes * sizeof(iqmMesh_t), size) ||
+		!mc_bounds_check(hdr->ofs_triangles,
+			(size_t)hdr->num_triangles * sizeof(iqmTriangle_t), size) ||
+		!mc_bounds_check(hdr->ofs_text, hdr->num_text, size)) {
+		MC_ERR("iqm: section offsets out of bounds\n");
+		free(buf);
+		return -1;
+	}
+	if (hdr->num_joints > 0 &&
+		!mc_bounds_check(hdr->ofs_joints,
+			(size_t)hdr->num_joints * sizeof(iqmJoint_t), size)) {
+		MC_ERR("iqm: joints offset out of bounds\n");
+		free(buf);
+		return -1;
+	}
+	if (hdr->num_poses > 0 &&
+		!mc_bounds_check(hdr->ofs_poses,
+			(size_t)hdr->num_poses * sizeof(iqmPose_t), size)) {
+		MC_ERR("iqm: poses offset out of bounds\n");
+		free(buf);
+		return -1;
+	}
+	if (hdr->num_anims > 0 &&
+		!mc_bounds_check(hdr->ofs_anims,
+			(size_t)hdr->num_anims * sizeof(iqmAnim_t), size)) {
+		MC_ERR("iqm: anims offset out of bounds\n");
+		free(buf);
+		return -1;
+	}
+	if (hdr->num_frames > 0 && hdr->num_framechannels > 0 &&
+		!mc_bounds_check(hdr->ofs_frames,
+			(size_t)hdr->num_frames * (size_t)hdr->num_framechannels * sizeof(unsigned short), size)) {
+		MC_ERR("iqm: frame data offset out of bounds\n");
+		free(buf);
+		return -1;
+	}
+
 	/* Locate vertex arrays for POSITION, NORMAL, TEXCOORD, BLENDINDEXES, BLENDWEIGHTS. */
 	const iqmVertexArray_t *vas = (const iqmVertexArray_t *)(buf + hdr->ofs_vertexarrays);
 	const unsigned char *posPtr = NULL, *normPtr = NULL, *uvPtr = NULL;
@@ -216,6 +257,14 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 	int posComp = 0, normComp = 0, uvComp = 0, biComp = 0, bwComp = 0;
 	for (unsigned int i = 0; i < hdr->num_vertexarrays; ++i) {
 		const iqmVertexArray_t *va = &vas[i];
+		int elemSz = iqm_array_size(va->format);
+		if (elemSz <= 0) continue;
+		size_t arrayBytes = (size_t)hdr->num_vertexes * (size_t)va->size * (size_t)elemSz;
+		if (!mc_bounds_check(va->offset, arrayBytes, size)) {
+			MC_ERR("iqm: vertex array %u offset out of bounds\n", i);
+			free(buf);
+			return -1;
+		}
 		const unsigned char *p = buf + va->offset;
 		switch (va->type) {
 		case IQM_POSITION:
@@ -260,8 +309,8 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 	if (isSkinned) {
 		joints = (const iqmJoint_t *)(buf + hdr->ofs_joints);
 		poses = (const iqmPose_t *)(buf + hdr->ofs_poses);
-		bindAbs = (float (*)[3][4])calloc(hdr->num_joints, sizeof(*bindAbs));
-		bindAbsInv = (float (*)[3][4])calloc(hdr->num_joints, sizeof(*bindAbsInv));
+		bindAbs = (float (*)[3][4])mc_calloc(hdr->num_joints, sizeof(*bindAbs));
+		bindAbsInv = (float (*)[3][4])mc_calloc(hdr->num_joints, sizeof(*bindAbsInv));
 		for (unsigned int j = 0; j < hdr->num_joints; ++j) {
 			float local[3][4];
 			mat34_from_trs(joints[j].translate, joints[j].rotate, joints[j].scale, local);
@@ -310,7 +359,7 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 	/* Per-frame absolute joint matrices and skinning matrices. */
 	float (*frameSkin)[3][4] = NULL;
 	if (isSkinned) {
-		frameSkin = (float (*)[3][4])calloc(hdr->num_joints, sizeof(*frameSkin));
+		frameSkin = (float (*)[3][4])mc_calloc(hdr->num_joints, sizeof(*frameSkin));
 	}
 
 	const iqmMesh_t *meshes = (const iqmMesh_t *)(buf + hdr->ofs_meshes);
@@ -332,13 +381,13 @@ int mc_load_iqm(const char *path, mc_model_t *out) {
 		mc_surface_alloc(s, (int)mesh->num_vertexes, (int)mesh->num_triangles, numFrames);
 
 		/* Bind-pose vertex data (frame 0 source). */
-		float *bindPos = (float *)calloc((size_t)mesh->num_vertexes * 3, sizeof(float));
-		float *bindNrm = (float *)calloc((size_t)mesh->num_vertexes * 3, sizeof(float));
+		float *bindPos = (float *)mc_calloc((size_t)mesh->num_vertexes * 3, sizeof(float));
+		float *bindNrm = (float *)mc_calloc((size_t)mesh->num_vertexes * 3, sizeof(float));
 		unsigned char *bIdx = NULL;
 		float *bWgt = NULL;
 		if (isSkinned) {
-			bIdx = (unsigned char *)calloc((size_t)mesh->num_vertexes * 4, 1);
-			bWgt = (float *)calloc((size_t)mesh->num_vertexes * 4, sizeof(float));
+			bIdx = (unsigned char *)mc_calloc((size_t)mesh->num_vertexes * 4, 1);
+			bWgt = (float *)mc_calloc((size_t)mesh->num_vertexes * 4, sizeof(float));
 		}
 
 		for (unsigned int vi = 0; vi < mesh->num_vertexes; ++vi) {
@@ -580,7 +629,7 @@ static unsigned int iqm_append(iqm_buf_t *b, const void *src, size_t n) {
 	if (b->size + n + 4 > b->cap) {
 		size_t cap = b->cap ? b->cap : 4096;
 		while (cap < b->size + n + 4) cap *= 2;
-		b->data = (unsigned char *)realloc(b->data, cap);
+		b->data = (unsigned char *)mc_realloc(b->data, cap);
 		b->cap = cap;
 	}
 	unsigned int ofs = (unsigned int)b->size;
@@ -608,7 +657,7 @@ static unsigned int iqm_text_intern(iqm_buf_t *text, const char *s) {
 	if (text->size + len + 1 > text->cap) {
 		size_t cap = text->cap ? text->cap : 256;
 		while (cap < text->size + len + 1) cap *= 2;
-		text->data = (unsigned char *)realloc(text->data, cap);
+		text->data = (unsigned char *)mc_realloc(text->data, cap);
 		text->cap = cap;
 	}
 	memcpy(text->data + text->size, s, len + 1);
@@ -644,7 +693,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 	iqm_buf_t text = { 0 };
 	iqm_text_intern(&text, ""); /* offset 0 -> empty */
 
-	iqmMesh_t *meshes = (iqmMesh_t *)calloc((size_t)m->numSurfaces, sizeof(iqmMesh_t));
+	iqmMesh_t *meshes = (iqmMesh_t *)mc_calloc((size_t)m->numSurfaces, sizeof(iqmMesh_t));
 	unsigned int firstVert = 0;
 	unsigned int firstTri = 0;
 	for (int i = 0; i < m->numSurfaces; ++i) {
@@ -663,7 +712,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 	/* Joints. */
 	iqmJoint_t *iqJoints = NULL;
 	if (hasSkel) {
-		iqJoints = (iqmJoint_t *)calloc((size_t)m->numJoints, sizeof(iqmJoint_t));
+		iqJoints = (iqmJoint_t *)mc_calloc((size_t)m->numJoints, sizeof(iqmJoint_t));
 		for (int j = 0; j < m->numJoints; ++j) {
 			const mc_joint_t *mj = &m->joints[j];
 			iqJoints[j].name = iqm_text_intern(&text, mj->name);
@@ -677,7 +726,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 	/* Pre-intern anim names so the text section is final before we emit it. */
 	unsigned int *animNameOfs = NULL;
 	if (hasSkel && m->numAnimations > 0) {
-		animNameOfs = (unsigned int *)calloc((size_t)m->numAnimations, sizeof(unsigned int));
+		animNameOfs = (unsigned int *)mc_calloc((size_t)m->numAnimations, sizeof(unsigned int));
 		for (int a = 0; a < m->numAnimations; ++a)
 			animNameOfs[a] = iqm_text_intern(&text, m->animations[a].name);
 	}
@@ -688,7 +737,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 	iqmPose_t *iqPoses = NULL;
 	unsigned int numFrameChannels = 0;
 	if (hasSkel) {
-		iqPoses = (iqmPose_t *)calloc((size_t)m->numJoints, sizeof(iqmPose_t));
+		iqPoses = (iqmPose_t *)mc_calloc((size_t)m->numJoints, sizeof(iqmPose_t));
 		for (int j = 0; j < m->numJoints; ++j) {
 			iqPoses[j].parent = m->joints[j].parent;
 			iqPoses[j].mask = 0x3FFu;
@@ -752,7 +801,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 				iqm_append(&out, s->blendIndices, (size_t)s->numVerts * 4);
 			else {
 				/* Surface lacks blend data - fill with joint 0 / weight 0. */
-				unsigned char *zero = (unsigned char *)calloc((size_t)s->numVerts * 4, 1);
+				unsigned char *zero = (unsigned char *)mc_calloc((size_t)s->numVerts * 4, 1);
 				iqm_append(&out, zero, (size_t)s->numVerts * 4);
 				free(zero);
 			}
@@ -760,7 +809,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 		bwOfs = (unsigned int)out.size;
 		for (int i = 0; i < m->numSurfaces; ++i) {
 			const mc_surface_t *s = &m->surfaces[i];
-			unsigned char *wb = (unsigned char *)calloc((size_t)s->numVerts * 4, 1);
+			unsigned char *wb = (unsigned char *)mc_calloc((size_t)s->numVerts * 4, 1);
 			if (s->blendWeights) {
 				for (int v = 0; v < s->numVerts; ++v) {
 					/* Renormalise to 0..255 sum 255 to satisfy the IQM spec. */
@@ -771,7 +820,8 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 					int largest = 0; int largestVal = -1;
 					for (int k = 0; k < 4; ++k) {
 						int b = (int)(s->blendWeights[v * 4 + k] * inv + 0.5f);
-						if (b < 0) b = 0; if (b > 255) b = 255;
+						if (b < 0) b = 0;
+						if (b > 255) b = 255;
 						wb[v * 4 + k] = (unsigned char)b;
 						total += b;
 						if (b > largestVal) { largestVal = b; largest = k; }
@@ -779,7 +829,8 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 					/* Drift correction so weights sum to exactly 255. */
 					int diff = (sum > 1e-6f ? 255 : 0) - total;
 					int corrected = (int)wb[v * 4 + largest] + diff;
-					if (corrected < 0) corrected = 0; if (corrected > 255) corrected = 255;
+					if (corrected < 0) corrected = 0;
+					if (corrected > 255) corrected = 255;
 					wb[v * 4 + largest] = (unsigned char)corrected;
 				}
 			}
@@ -828,8 +879,8 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 		   must equal the actual TRS value.  TRS values can be negative
 		   or > 65535; to support that range we'd need real
 		   channeloffset/channelscale per-channel.  Compute them now. */
-		float *minCh = (float *)malloc(sizeof(float) * 10 * (size_t)m->numJoints);
-		float *maxCh = (float *)malloc(sizeof(float) * 10 * (size_t)m->numJoints);
+		float *minCh = (float *)mc_malloc(sizeof(float) * 10 * (size_t)m->numJoints);
+		float *maxCh = (float *)mc_malloc(sizeof(float) * 10 * (size_t)m->numJoints);
 		for (int j = 0; j < m->numJoints; ++j) {
 			for (int c = 0; c < 10; ++c) { minCh[j * 10 + c] = 1e30f; maxCh[j * 10 + c] = -1e30f; }
 		}
@@ -864,7 +915,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 		   4-byte boundary -- appending one ushort at a time would
 		   waste 2 bytes per channel and corrupt the layout. */
 		size_t framesBytes = (size_t)frames * (size_t)m->numJoints * 10u * sizeof(unsigned short);
-		unsigned short *frameBlock = (unsigned short *)malloc(framesBytes);
+		unsigned short *frameBlock = (unsigned short *)mc_malloc(framesBytes);
 		size_t fi = 0;
 		for (int f = 0; f < frames; ++f) {
 			for (int j = 0; j < m->numJoints; ++j) {
@@ -877,7 +928,8 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 					float scale = iqPoses[j].channelscale[c];
 					if (scale > 0) {
 						float vf = (ch[c] - iqPoses[j].channeloffset[c]) / scale;
-						if (vf < 0) vf = 0; if (vf > 65535) vf = 65535;
+						if (vf < 0) vf = 0;
+						if (vf > 65535) vf = 65535;
 						v = (unsigned short)(vf + 0.5f);
 					}
 					frameBlock[fi++] = v;
@@ -891,7 +943,7 @@ int mc_save_iqm(const char *path, const mc_model_t *m) {
 
 		/* Anims. */
 		if (m->numAnimations > 0) {
-			iqmAnim_t *iqAnims = (iqmAnim_t *)calloc((size_t)m->numAnimations, sizeof(iqmAnim_t));
+			iqmAnim_t *iqAnims = (iqmAnim_t *)mc_calloc((size_t)m->numAnimations, sizeof(iqmAnim_t));
 			for (int a = 0; a < m->numAnimations; ++a) {
 				iqAnims[a].name = animNameOfs ? animNameOfs[a] : 0;
 				iqAnims[a].first_frame = (unsigned int)m->animations[a].firstFrame;

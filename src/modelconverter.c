@@ -3,65 +3,7 @@
 modelconverter - command-line entry point.
 
 Converts between glTF/GLB and Quake3-style MD3 / IQM / MDR model formats.
-
-Usage:
-	modelconverter [options] -i <input> -o <output>
-
-Options:
-	-i, --input  <path>      Input model (.gltf, .glb, .md3, .iqm, .mdr) or
-							 a Quake3 player directory containing
-							 head.md3 / upper.md3 / lower.md3 plus
-							 animation.cfg / *.skin / *.shader sidecars.
-	-o, --output <path>      Output model (.gltf, .glb, .md3, .iqm, .mdr)
-							 or, when --player is in effect, a directory
-							 to receive the split player bundle.
-	--fps <N>                Animation sample rate hint when reading glTF
-							 (default 15).
-	--player                 Force player-bundle mode.  Implied when the
-							 input path is a directory containing
-							 lower.md3.
-	--skin                   Also emit a Q3 ".skin" file alongside the
-							 output (uses the surface name -> shader name
-							 mapping recorded in the source asset).
-	--info                   Print summary information about the input
-							 file and exit (no conversion is performed).
-	-v, --verbose            Print extra progress information.
-	-h, --help               Show this help.
-
-glTF as the canonical Q3 source format
---------------------------------------
-A full Q3 player can be authored as a single .glb: each mesh primitive
-carries a `q3_part` extras tag ("head" / "upper" / "lower"), tags become
-glTF nodes named `tag_*` with `q3_tag = true` extras, and the
-animation.cfg metadata (frame ranges, sex, headoffset) lives in
-`asset.extras.q3_animations`.  Splitting the .glb back to a directory
-re-emits head.md3 / upper.md3 / lower.md3 + animation.cfg + every
-.skin variant + a .shader file.
-
-When the q3_* extras are absent the reader falls back to glTF naming
-conventions:
-  * Part membership is inferred from the mesh / parent-node name -
-    "head", "upper" / "torso", "lower" / "legs", or the MD3 surface-name
-    prefixes h_ / u_ / l_.
-  * LOD level is inferred from a trailing `_lod1` / `_LOD2` / `.lod1`
-    or a single trailing `_<digit>` (1..MD3_MAX_LODS-1).
-  * Tags are any node whose name starts with `tag_` and that owns no mesh.
-  * A file that contains all three head/upper/lower parts is treated as
-    a player bundle even if `q3_player` is not set on the asset.
-
-Tag handling
-------------
-glTF nodes whose name starts with `tag_` and that carry no mesh become MD3
-tags; in the reverse direction MD3 tags are emitted as glTF nodes named
-`tag_<name>` with `extras = { "q3_tag": true }` so they round-trip.
-
-Animation
----------
-MD3 stores per-vertex frame data; this tool emits one glTF morph target
-per additional MD3 frame so artists can scrub through frames in any glTF
-viewer.  When converting glTF to MD3 morph targets are reconstructed back
-into per-frame MD3 vertices, and the q3_animations extras feed
-animation.cfg.
+Run `modelconverter --help` for the full option list.
 ===========================================================================
 */
 
@@ -88,12 +30,11 @@ static void print_help(const char *prog) {
 	printf("modelconverter - WoP/Quake3 model interop tool\n"
 		   "\n"
 		   "Usage: %s [options] -i <input> -o <output>\n"
-		   "       %s info <file>\n"
-		   "       %s validate <file>\n"
-		   "       %s convert <input> <output>\n"
-		   "       %s player <dir> <output>\n"
+		   "       %s --info -i <file>\n"
+		   "       %s --validate -i <file>\n"
+		   "       %s --player -i <dir> -o <output>\n"
 		   "\n"
-		   "Supported formats: .gltf .glb .md3 .iqm .mdr (.iqm and .mdr writers are static-only; bones not yet supported)\n"
+		   "Supported formats: .gltf .glb .md3 .iqm .mdr\n"
 		   "\n"
 		   "Options:\n"
 		   "  -i, --input  <path>   input model file\n"
@@ -132,7 +73,7 @@ static void print_help(const char *prog) {
 		   "  -v, --verbose         verbose progress output\n"
 		   "  -q, --quiet           suppress info/debug output (errors only)\n"
 		   "  -h, --help            this help\n",
-		   prog, prog, prog, prog, prog);
+		   prog, prog, prog, prog);
 }
 
 static void print_info(const mc_model_t *m, const char *path) {
@@ -269,6 +210,41 @@ int main(int argc, char **argv) {
 	static char *rewritten[64];
 	if (argc >= 2 && argv[1][0] != '-') {
 		const char *verb = argv[1];
+		/* Per-subcommand --help. */
+		int want_subcmd_help = (argc >= 3 && (!strcmp(argv[2], "--help") || !strcmp(argv[2], "-h")));
+		if (!want_subcmd_help && argc == 2)
+			want_subcmd_help = 1; /* bare "modelconverter info" with no file */
+		if (want_subcmd_help) {
+			if (!strcmp(verb, "info")) {
+				printf("Usage: %s info <file> [-v]\n\nPrint summary information about a model file.\n", argv[0]);
+				return 0;
+			} else if (!strcmp(verb, "validate")) {
+				printf("Usage: %s validate <file> [-v]\n\nRun format-limit and sanity checks. Exits non-zero on issues.\n", argv[0]);
+				return 0;
+			} else if (!strcmp(verb, "convert")) {
+				printf("Usage: %s convert <input> <output> [options]\n\n"
+					   "Options:\n"
+					   "  --fps <N>          glTF animation sample rate (default 15)\n"
+					   "  --skin             emit a .skin sidecar\n"
+					   "  --shader           emit a .shader sidecar\n"
+					   "  --shader-in <p>    apply an existing .shader file\n"
+					   "  --skin-in <p>      apply an existing .skin file\n"
+					   "  --subdivide <N>    Loop subdivision iterations\n"
+					   "  --decimate <R>     keep R*100%% of triangles\n"
+					   "  --gen-lods [N]     auto-generate N LOD levels\n"
+					   "  --asset-root <d>   texture search directory\n"
+					   "  -v, --verbose      verbose output\n"
+					   "  -q, --quiet        errors only\n", argv[0]);
+				return 0;
+			} else if (!strcmp(verb, "player")) {
+				printf("Usage: %s player <dir|file> <output> [options]\n\n"
+					   "Convert a Q3 player bundle (head/upper/lower.md3 + animation.cfg).\n"
+					   "Input can be a directory or a single .glb containing all parts.\n\n"
+					   "Options: same as 'convert' plus --no-auto-skin, --no-auto-shader.\n", argv[0]);
+				return 0;
+			}
+			/* Unknown verb with --help: fall through to global help. */
+		}
 		int n = 0;
 		rewritten[n++] = argv[0];
 		if (!strcmp(verb, "info") && argc >= 3) {

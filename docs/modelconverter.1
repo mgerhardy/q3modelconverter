@@ -1,0 +1,111 @@
+.TH MODELCONVERTER 1 "2026-04-24" "modelconverter 1.0" "User Commands"
+.SH NAME
+modelconverter \- convert between glTF and Quake 3 model formats
+.SH SYNOPSIS
+.B modelconverter
+.RI [ options ]
+.B \-i
+.I input
+.B \-o
+.I output
+.br
+.B modelconverter \-\-info \-i
+.I file
+.br
+.B modelconverter \-\-validate \-i
+.I file
+.br
+.B modelconverter \-\-player \-i
+.I dir
+.B \-o
+.I output
+.RI [ options ]
+.SH DESCRIPTION
+.B modelconverter
+converts between glTF 2.0 (.gltf/.glb) and Quake 3 model formats
+(MD3, IQM, MDR). It supports vertex animation, skeletal animation,
+player bundles, shader round-trips, mesh subdivision, decimation
+and LOD generation.
+.SH OPTIONS
+.TP
+.BR \-i ", " \-\-input " " \fIpath\fR
+Input model file or player directory.
+.TP
+.BR \-o ", " \-\-output " " \fIpath\fR
+Output model file or directory.
+.TP
+.BI \-\-fps " N"
+glTF animation sample rate hint (default 15).
+.TP
+.B \-\-skin
+Emit a .skin sidecar file.
+.TP
+.B \-\-shader
+Emit a .shader sidecar file.
+.TP
+.BI \-\-shader\-in " path"
+Parse a Q3 .shader file and apply it to the loaded model.
+.TP
+.BI \-\-skin\-in " path"
+Parse a Q3 .skin file and override surface\->shader mappings.
+.TP
+.B \-\-no\-auto\-skin
+Don\(aqt auto-discover <model>_default.skin / <model>.skin.
+.TP
+.B \-\-no\-auto\-shader
+Don\(aqt auto-discover .shader files under the asset roots.
+.TP
+.B \-\-player
+Force player-bundle mode (auto when input is a directory).
+.TP
+.BI \-\-subdivide " N"
+Apply N iterations of Loop subdivision.
+.TP
+.BI \-\-decimate " R"
+QEM decimation keeping R*100% of triangles (0..1).
+.TP
+.BI \-\-gen\-lods " [N]"
+Auto-generate N additional LOD levels (default 2; max MD3_MAX_LODS\-1).
+.TP
+.BI \-\-gen\-lod\-ratios " r1,r2,..."
+Triangle-keep ratios per generated LOD (default 0.5,0.25).
+.TP
+.BI \-\-asset\-root " dir"
+Add a directory (or .pk3 file) to search for textures referenced by the
+model. Repeatable; defaults are derived from the input path.
+.TP
+.BI \-\-shader\-path " dir"
+Add a directory (or .pk3 file) to scan recursively for .shader files
+beyond the asset roots. Repeatable.
+.TP
+.BI \-\-shader\-depth " N"
+Max recursion depth for shader auto-discovery (default 6).
+.TP
+.B \-\-info
+Print info about the input and exit (no conversion).
+.TP
+.B \-\-validate
+Run format-limit and sanity checks on the input and exit non-zero
+if any issue is found (no output written).
+.TP
+.BR \-v ", " \-\-verbose
+Verbose output.
+.TP
+.BR \-q ", " \-\-quiet
+Errors only.
+.TP
+.BR \-h ", " \-\-help
+Show help.
+.SH FORMATS
+MD3 (vertex animation), IQM (skeletal), MDR (skeletal, including
+compressed frames), glTF 2.0 / GLB.
+.SH EXAMPLES
+.nf
+modelconverter -i player.glb -o upper.md3
+modelconverter --info -i upper.md3
+modelconverter --player -i models/players/padman/ -o padman.glb
+.fi
+.SH AUTHOR
+World of Padman Team
+.SH LICENSE
+GPL-2.0-or-later

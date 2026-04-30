@@ -1,0 +1,27 @@
+site_name: modelconverter
+site_description: Quake 3 model format converter (MD3/IQM/MDR/glTF)
+site_url: https://mgerhardy.github.io/q3modelconverter/
+repo_url: https://github.com/mgerhardy/q3modelconverter
+repo_name: mgerhardy/q3modelconverter
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep orange
+  features:
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - CLI Reference: cli-reference.md
+  - Format Reference: formats.md
+  - Workflow Recipes: workflows.md
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences

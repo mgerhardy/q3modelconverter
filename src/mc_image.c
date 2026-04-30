@@ -12,8 +12,10 @@ texture is readable everywhere.
 
 #include "mc_common.h"
 
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef __GNUC__
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wall"
+#pragma GCC diagnostic ignored "-Wextra"
 #pragma GCC diagnostic ignored "-Wmissing-prototypes"
 #pragma GCC diagnostic ignored "-Wstrict-prototypes"
 #endif
@@ -27,7 +29,7 @@ texture is readable everywhere.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#if defined(__GNUC__) || defined(__clang__)
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
 
@@ -43,7 +45,7 @@ static void blob_write(void *ctx, void *data, int size) {
 		size_t nc = b->cap ? b->cap * 2 : 4096;
 		while (nc < b->size + (size_t)size)
 			nc *= 2;
-		b->data = (unsigned char *)realloc(b->data, nc);
+		b->data = (unsigned char *)mc_realloc(b->data, nc);
 		b->cap = nc;
 	}
 	memcpy(b->data + b->size, data, (size_t)size);
@@ -72,7 +74,7 @@ unsigned char *mc_image_to_png(const unsigned char *src, size_t src_size, size_t
    standing "missing material" convention used by Source / Quake tools). */
 unsigned char *mc_image_make_missing_placeholder(size_t *out_size) {
 	const int W = 64, H = 64, C = 4, CELL = 8;
-	unsigned char *pixels = (unsigned char *)malloc((size_t)W * H * C);
+	unsigned char *pixels = (unsigned char *)mc_malloc((size_t)W * H * C);
 	if (!pixels)
 		return NULL;
 	for (int y = 0; y < H; ++y) {

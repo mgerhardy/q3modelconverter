@@ -27,7 +27,7 @@ static const char k_b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxy
 char *mc_b64_encode(const void *data, size_t len) {
 	const unsigned char *in = (const unsigned char *)data;
 	size_t out_len = ((len + 2) / 3) * 4;
-	char *out = (char *)malloc(out_len + 1);
+	char *out = (char *)mc_malloc(out_len + 1);
 	if (!out)
 		return NULL;
 	size_t i = 0, o = 0;
@@ -70,7 +70,7 @@ unsigned char *mc_b64_decode(const char *in, size_t in_len, size_t *out_len) {
 	while (in_len > 0 && (in[in_len - 1] == '=' || isspace((unsigned char)in[in_len - 1])))
 		in_len--;
 	size_t cap = in_len * 3 / 4 + 4;
-	unsigned char *out = (unsigned char *)malloc(cap);
+	unsigned char *out = (unsigned char *)mc_malloc(cap);
 	if (!out)
 		return NULL;
 	size_t o = 0;
@@ -110,7 +110,7 @@ unsigned char *mc_read_file(const char *path, size_t *out_size) {
 		return NULL;
 	}
 	rewind(f);
-	unsigned char *buf = (unsigned char *)malloc((size_t)sz + 1);
+	unsigned char *buf = (unsigned char *)mc_malloc((size_t)sz + 1);
 	if (!buf) {
 		fclose(f);
 		return NULL;
@@ -136,7 +136,7 @@ unsigned char *mc_read_file_quiet(const char *path, size_t *out_size) {
 	long sz = ftell(f);
 	if (sz < 0) { fclose(f); return NULL; }
 	rewind(f);
-	unsigned char *buf = (unsigned char *)malloc((size_t)sz + 1);
+	unsigned char *buf = (unsigned char *)mc_malloc((size_t)sz + 1);
 	if (!buf) { fclose(f); return NULL; }
 	size_t n = fread(buf, 1, (size_t)sz, f);
 	fclose(f);
@@ -315,21 +315,22 @@ void mc_surface_alloc(mc_surface_t *s, int numVerts, int numTris, int numFrames)
 	s->numVerts = numVerts;
 	s->numTris = numTris;
 	if (numVerts > 0 && numFrames > 0) {
-		s->xyz = (float *)calloc((size_t)numVerts * (size_t)numFrames * 3, sizeof(float));
-		s->normal = (float *)calloc((size_t)numVerts * (size_t)numFrames * 3, sizeof(float));
-		s->st = (float *)calloc((size_t)numVerts * 2, sizeof(float));
+		size_t n = mc_safe_mul3((size_t)numVerts, (size_t)numFrames, 3);
+		s->xyz = (float *)mc_calloc(n, sizeof(float));
+		s->normal = (float *)mc_calloc(n, sizeof(float));
+		s->st = (float *)mc_calloc((size_t)numVerts * 2, sizeof(float));
 	}
 	if (numTris > 0) {
-		s->indices = (int *)calloc((size_t)numTris * 3, sizeof(int));
+		s->indices = (int *)mc_calloc((size_t)numTris * 3, sizeof(int));
 	}
 }
 
 void mc_surface_alloc_blend(mc_surface_t *s) {
 	if (s->numVerts <= 0) return;
 	if (!s->blendIndices)
-		s->blendIndices = (unsigned char *)calloc((size_t)s->numVerts * 4, 1);
+		s->blendIndices = (unsigned char *)mc_calloc((size_t)s->numVerts * 4, 1);
 	if (!s->blendWeights)
-		s->blendWeights = (float *)calloc((size_t)s->numVerts * 4, sizeof(float));
+		s->blendWeights = (float *)mc_calloc((size_t)s->numVerts * 4, sizeof(float));
 }
 
 void mc_model_set_joints(mc_model_t *m, int numJoints) {
@@ -341,7 +342,7 @@ void mc_model_set_joints(mc_model_t *m, int numJoints) {
 		m->numJoints = 0;
 		return;
 	}
-	mc_joint_t *nj = (mc_joint_t *)calloc((size_t)numJoints, sizeof(mc_joint_t));
+	mc_joint_t *nj = (mc_joint_t *)mc_calloc((size_t)numJoints, sizeof(mc_joint_t));
 	if (m->joints && m->numJoints > 0) {
 		int n = numJoints < m->numJoints ? numJoints : m->numJoints;
 		memcpy(nj, m->joints, sizeof(mc_joint_t) * (size_t)n);
@@ -349,7 +350,7 @@ void mc_model_set_joints(mc_model_t *m, int numJoints) {
 	}
 	m->joints = nj;
 	int frames = m->numFrames > 0 ? m->numFrames : 1;
-	mc_joint_pose_t *np = (mc_joint_pose_t *)calloc((size_t)frames * (size_t)numJoints, sizeof(mc_joint_pose_t));
+	mc_joint_pose_t *np = (mc_joint_pose_t *)mc_calloc((size_t)frames * (size_t)numJoints, sizeof(mc_joint_pose_t));
 	free(m->jointPoses);
 	m->jointPoses = np;
 	m->numJoints = numJoints;
@@ -383,7 +384,7 @@ void mc_model_free(mc_model_t *m) {
 
 mc_skin_variant_t *mc_model_add_skin_variant(mc_model_t *m, const char *name, const char *part) {
 	int n = m->numSkins + 1;
-	mc_skin_variant_t *p = (mc_skin_variant_t *)realloc(m->skins, sizeof(mc_skin_variant_t) * (size_t)n);
+	mc_skin_variant_t *p = (mc_skin_variant_t *)mc_realloc(m->skins, sizeof(mc_skin_variant_t) * (size_t)n);
 	if (!p)
 		return NULL;
 	m->skins = p;
@@ -399,7 +400,7 @@ mc_skin_variant_t *mc_model_add_skin_variant(mc_model_t *m, const char *name, co
 
 mc_animation_t *mc_model_add_animation(mc_model_t *m) {
 	int n = m->numAnimations + 1;
-	mc_animation_t *p = (mc_animation_t *)realloc(m->animations, sizeof(mc_animation_t) * (size_t)n);
+	mc_animation_t *p = (mc_animation_t *)mc_realloc(m->animations, sizeof(mc_animation_t) * (size_t)n);
 	if (!p)
 		return NULL;
 	m->animations = p;
@@ -411,7 +412,7 @@ mc_animation_t *mc_model_add_animation(mc_model_t *m) {
 
 mc_surface_t *mc_model_add_surface(mc_model_t *m) {
 	int n = m->numSurfaces + 1;
-	mc_surface_t *p = (mc_surface_t *)realloc(m->surfaces, sizeof(mc_surface_t) * (size_t)n);
+	mc_surface_t *p = (mc_surface_t *)mc_realloc(m->surfaces, sizeof(mc_surface_t) * (size_t)n);
 	if (!p)
 		return NULL;
 	m->surfaces = p;
@@ -429,7 +430,7 @@ mc_surface_t *mc_model_add_surface(mc_model_t *m) {
 
 mc_frame_t *mc_model_add_frame(mc_model_t *m) {
 	int n = m->numFrames + 1;
-	mc_frame_t *p = (mc_frame_t *)realloc(m->frames, sizeof(mc_frame_t) * (size_t)n);
+	mc_frame_t *p = (mc_frame_t *)mc_realloc(m->frames, sizeof(mc_frame_t) * (size_t)n);
 	if (!p)
 		return NULL;
 	m->frames = p;
@@ -446,7 +447,7 @@ mc_tag_t *mc_model_add_tag_slot(mc_model_t *m, int numFrames) {
 	int oldTags = m->numTags;
 	int newTags = oldTags + 1;
 	int rows = numFrames > 0 ? numFrames : 1;
-	mc_tag_t *p = (mc_tag_t *)calloc((size_t)rows * (size_t)newTags, sizeof(mc_tag_t));
+	mc_tag_t *p = (mc_tag_t *)mc_calloc((size_t)rows * (size_t)newTags, sizeof(mc_tag_t));
 	if (!p)
 		return NULL;
 	if (m->tags) {
