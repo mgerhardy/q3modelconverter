@@ -515,15 +515,4 @@ int mc_save_skin(const char *path, const mc_model_t *m) {
 	return 0;
 }
 
-#ifdef _WIN32
-/* Windows lacks strcasecmp; provide a tiny shim. */
-int strcasecmp(const char *a, const char *b) {
-	while (*a && *b) {
-		int ca = tolower((unsigned char)*a++);
-		int cb = tolower((unsigned char)*b++);
-		if (ca != cb)
-			return ca - cb;
-	}
-	return tolower((unsigned char)*a) - tolower((unsigned char)*b);
-}
-#endif
+
