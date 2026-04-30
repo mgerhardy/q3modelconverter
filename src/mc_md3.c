@@ -183,6 +183,10 @@ counts where necessary.
 ============
 */
 int mc_save_md3(const char *path, const mc_model_t *m) {
+	if (m->numSurfaces < 1) {
+		MC_ERR("md3: no surfaces to write\n");
+		return -1;
+	}
 	if (m->numSurfaces > MD3_MAX_SURFACES) {
 		MC_ERR("md3: too many surfaces (%d > limit %d)\n"
 			"   hint: merge surfaces that share a shader, or split this model into multiple MD3s linked by tags.\n",
