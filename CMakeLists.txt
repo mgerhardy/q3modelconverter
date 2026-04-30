@@ -114,8 +114,6 @@ endif()
 
 # ---- Install ----
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
-install(TARGETS modelconverter_lib ARCHIVE DESTINATION lib)
-install(FILES src/modelconverter.h DESTINATION include/modelconverter)
 install(FILES docs/modelconverter.1 DESTINATION share/man/man1)
 install(FILES contrib/completions/modelconverter.bash
         DESTINATION share/bash-completion/completions RENAME modelconverter)
