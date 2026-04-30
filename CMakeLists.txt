@@ -11,6 +11,7 @@ if (MSVC)
 else()
 	add_compile_options(
 		-Wall -Wextra -Werror
+		-Wshadow
 		-Wformat=2
 		-Wstrict-prototypes
 		-Wmissing-prototypes

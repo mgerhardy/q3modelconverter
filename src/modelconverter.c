@@ -498,7 +498,7 @@ int main(int argc, char **argv) {
 
 	if (info_only) {
 		print_info(&model, input);
-		int rc = 0;
+		rc = 0;
 		if (validate_only) {
 			rc = validate_model(&model, input);
 		}
