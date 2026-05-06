@@ -479,6 +479,8 @@ mc_format_t mc_guess_format(const char *path) {
 		return MC_FMT_MDR;
 	if (!strcasecmp(dot, ".ase"))
 		return MC_FMT_ASE;
+	if (!strcasecmp(dot, ".3ds"))
+		return MC_FMT_3DS;
 	return MC_FMT_UNKNOWN;
 }
 
@@ -496,6 +498,8 @@ const char *mc_format_name(mc_format_t f) {
 		return "mdr";
 	case MC_FMT_ASE:
 		return "ase";
+	case MC_FMT_3DS:
+		return "3ds";
 	default:
 		return "unknown";
 	}

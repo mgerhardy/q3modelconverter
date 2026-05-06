@@ -34,7 +34,7 @@ void mc_model_free(mc_model_t *m);
 
 /* ---- Format detection ---- */
 
-typedef enum { MC_FMT_UNKNOWN, MC_FMT_GLTF, MC_FMT_GLB, MC_FMT_MD3, MC_FMT_IQM, MC_FMT_MDR } mc_format_t;
+typedef enum { MC_FMT_UNKNOWN, MC_FMT_GLTF, MC_FMT_GLB, MC_FMT_MD3, MC_FMT_IQM, MC_FMT_MDR, MC_FMT_3DS } mc_format_t;
 
 mc_format_t mc_guess_format(const char *path);
 const char *mc_format_name(mc_format_t f);
@@ -52,6 +52,9 @@ int mc_save_iqm(const char *path, const mc_model_t *m);
 
 int mc_load_mdr(const char *path, mc_model_t *out);
 int mc_save_mdr(const char *path, const mc_model_t *m);
+
+int mc_load_3ds(const char *path, mc_model_t *out);
+int mc_save_3ds(const char *path, const mc_model_t *m);
 
 /* ---- Sidecars ---- */
 

@@ -31,6 +31,7 @@ set(LIB_SRCS
 	src/mc_iqm.c
 	src/mc_mdr.c
 	src/mc_ase.c
+	src/mc_3ds.c
 
 	src/mc_gltf_read.c
 	src/mc_gltf_write.c

@@ -34,7 +34,7 @@ static void print_help(const char *prog) {
 		   "       %s --validate -i <file>\n"
 		   "       %s --player -i <dir> -o <output>\n"
 		   "\n"
-		   "Supported formats: .gltf .glb .md3 .iqm .mdr .ase\n"
+		   "Supported formats: .gltf .glb .md3 .iqm .mdr .ase .3ds\n"
 		   "\n"
 		   "Options:\n"
 		   "  -i, --input  <path>   input model file\n"
@@ -438,6 +438,9 @@ int main(int argc, char **argv) {
 		case MC_FMT_ASE:
 			rc = mc_load_ase(input, &model);
 			break;
+		case MC_FMT_3DS:
+			rc = mc_load_3ds(input, &model);
+			break;
 		default:
 			break;
 		}
@@ -648,6 +651,9 @@ int main(int argc, char **argv) {
 			break;
 		case MC_FMT_ASE:
 			wrc = mc_save_ase(output, &model);
+			break;
+		case MC_FMT_3DS:
+			wrc = mc_save_3ds(output, &model);
 			break;
 		default:
 			break;
