@@ -1627,13 +1627,36 @@ int mc_save_gltf(const char *path, const mc_model_t *m, int as_glb, const char *
 		free(childFill);
 	}
 
+	/* Skinned mesh nodes must be scene roots (not children of another
+	   node) to satisfy the glTF spec and avoid
+	   NODE_SKINNED_MESH_NON_ROOT warnings.  Remove them from
+	   rootChildren and promote them to scene-level nodes. */
+	int skinnedSceneCnt = 0;
+	if (hasSkin) {
+		int dst = 0;
+		for (int i = 0; i < rootChildCnt; ++i) {
+			if (rootChildren[i]->skin)
+				++skinnedSceneCnt;
+			else
+				rootChildren[dst++] = rootChildren[i];
+		}
+		rootChildCnt = dst;
+	}
+
 	root->children = rootChildren;
 	root->children_count = rootChildCnt;
 
 	cgltf_scene *scenes = ALLOC_ARR(cgltf_scene, 1);
-	scenes[0].nodes = ALLOC_ARR(cgltf_node *, 1);
+	scenes[0].nodes = ALLOC_ARR(cgltf_node *, 1 + skinnedSceneCnt);
 	scenes[0].nodes[0] = root;
-	scenes[0].nodes_count = 1;
+	scenes[0].nodes_count = 1 + skinnedSceneCnt;
+	if (skinnedSceneCnt > 0) {
+		int idx = 1;
+		for (int si = 0; si < totalSurfs; ++si) {
+			if (nodes[firstMeshNode + si].skin)
+				scenes[0].nodes[idx++] = &nodes[firstMeshNode + si];
+		}
+	}
 	scenes[0].name = dup_str("scene");
 	data.scenes = scenes;
 	data.scenes_count = 1;

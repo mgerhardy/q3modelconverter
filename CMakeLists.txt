@@ -106,6 +106,16 @@ add_test(NAME convert_cube_md3_to_glb
 	COMMAND ${PROJECT_NAME} convert ${CMAKE_BINARY_DIR}/cube.md3 ${CMAKE_BINARY_DIR}/cube_subcmd.glb)
 set_tests_properties(convert_cube_md3_to_glb PROPERTIES DEPENDS roundtrip)
 
+# glTF-Validator: run on all .glb/.gltf outputs when the tool is available.
+find_program(GLTF_VALIDATOR NAMES gltf_validator gltf-validator)
+if (GLTF_VALIDATOR)
+	foreach(asset cube.glb cube.gltf cube_anim.glb cube_anim.gltf cube_skel.glb)
+		add_test(NAME gltf_validate_${asset}
+			COMMAND ${GLTF_VALIDATOR} ${CMAKE_BINARY_DIR}/${asset})
+		set_tests_properties(gltf_validate_${asset} PROPERTIES DEPENDS roundtrip)
+	endforeach()
+endif()
+
 # Full player-bundle round-trip (only when worldofpadman/ subdir is present).
 if (EXISTS "${CMAKE_SOURCE_DIR}/worldofpadman/wop/models.pk3dir/models/wop_players/padman/lower.md3")
 	add_test(NAME roundtrip_player
