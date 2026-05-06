@@ -52,8 +52,8 @@ static uint16_t r_u16(reader_t *r) {
 
 static uint32_t r_u32(reader_t *r) {
 	if (r->pos + 4 > r->size) { r->pos = r->size; return 0; }
-	uint32_t v = (uint32_t)(r->data[r->pos] | (r->data[r->pos+1]<<8) |
-	             (r->data[r->pos+2]<<16) | (r->data[r->pos+3]<<24));
+	uint32_t v = (uint32_t)r->data[r->pos] | ((uint32_t)r->data[r->pos+1]<<8) |
+	             ((uint32_t)r->data[r->pos+2]<<16) | ((uint32_t)r->data[r->pos+3]<<24);
 	r->pos += 4;
 	return v;
 }
