@@ -535,6 +535,34 @@ done:
 	return rc;
 }
 
+/* Round-trip for formats that expand shared vertices to per-face-vertex
+   (ASE, 3DS).  Checks triangle count and shader name survival. */
+static int round_trip_tris(const char *label, const char *path,
+						   saver_fn save, loader_fn load,
+						   const mc_model_t *src) {
+	printf("  [%s] ", label); fflush(stdout);
+	if (save(path, src) != 0) { printf("FAIL save\n"); return 1; }
+	mc_model_t dst;
+	mc_model_init(&dst);
+	if (load(path, &dst) != 0) { printf("FAIL load\n"); return 1; }
+	int rc = 0;
+	if (dst.numSurfaces < 1) {
+		printf("FAIL no surfaces\n"); rc = 1;
+	} else {
+		const mc_surface_t *a = &src->surfaces[0];
+		const mc_surface_t *b = &dst.surfaces[0];
+		if (b->numTris != a->numTris) {
+			printf("FAIL tris %d!=%d\n", b->numTris, a->numTris); rc = 1;
+		} else if (a->shader[0] && strcmp(a->shader, b->shader) != 0) {
+			printf("FAIL shader '%s'!='%s'\n", b->shader, a->shader); rc = 1;
+		} else {
+			printf("OK tris=%d shader='%s'\n", b->numTris, b->shader);
+		}
+	}
+	mc_model_free(&dst);
+	return rc;
+}
+
 int main(int argc, char **argv) {
 	const char *tmp = (argc > 1) ? argv[1] : ".";
 	char path[1024];
@@ -552,6 +580,13 @@ int main(int argc, char **argv) {
 	rc |= round_trip("gltf", path, gltf_save, gltf_load, &cube);
 	snprintf(path, sizeof(path), "%s/cube.glb", tmp);
 	rc |= round_trip("glb ", path, glb_save, gltf_load, &cube);
+
+	/* ASE and 3DS expand shared vertices to per-face-vertex, so only
+	   check triangle count (verts will be numTris*3). */
+	snprintf(path, sizeof(path), "%s/cube.ase", tmp);
+	rc |= round_trip_tris("ase ", path, mc_save_ase, mc_load_ase, &cube);
+	snprintf(path, sizeof(path), "%s/cube.3ds", tmp);
+	rc |= round_trip_tris("3ds ", path, mc_save_3ds, mc_load_3ds, &cube);
 
 	mc_model_free(&cube);
 
