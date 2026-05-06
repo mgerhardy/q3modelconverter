@@ -481,8 +481,191 @@ int mc_load_3ds(const char *path, mc_model_t *out) {
 	return rc;
 }
 
+/* ---- Binary writer helpers ---- */
+
+typedef struct {
+	unsigned char *data;
+	size_t size;
+	size_t cap;
+} wbuf_t;
+
+static void w_grow(wbuf_t *w, size_t need) {
+	if (w->size + need <= w->cap) return;
+	size_t nc = w->cap ? w->cap * 2 : 4096;
+	while (nc < w->size + need) nc *= 2;
+	w->data = (unsigned char *)mc_realloc(w->data, nc);
+	w->cap = nc;
+}
+
+static void w_u16(wbuf_t *w, uint16_t v) {
+	w_grow(w, 2);
+	w->data[w->size++] = (uint8_t)(v & 0xFF);
+	w->data[w->size++] = (uint8_t)(v >> 8);
+}
+
+static void w_u32(wbuf_t *w, uint32_t v) {
+	w_grow(w, 4);
+	w->data[w->size++] = (uint8_t)(v & 0xFF);
+	w->data[w->size++] = (uint8_t)((v >> 8) & 0xFF);
+	w->data[w->size++] = (uint8_t)((v >> 16) & 0xFF);
+	w->data[w->size++] = (uint8_t)(v >> 24);
+}
+
+static void w_f32(wbuf_t *w, float f) {
+	union { float f; uint32_t u; } cv;
+	cv.f = f;
+	w_u32(w, cv.u);
+}
+
+static void w_str(wbuf_t *w, const char *s) {
+	size_t len = strlen(s) + 1;
+	w_grow(w, len);
+	memcpy(w->data + w->size, s, len);
+	w->size += len;
+}
+
+static size_t w_chunk_begin(wbuf_t *w, uint16_t id) {
+	w_u16(w, id);
+	size_t pos = w->size;
+	w_u32(w, 0); /* placeholder */
+	return pos;
+}
+
+static void w_chunk_end(wbuf_t *w, size_t pos) {
+	uint32_t len = (uint32_t)(w->size - pos + 2);
+	w->data[pos+0] = (uint8_t)(len & 0xFF);
+	w->data[pos+1] = (uint8_t)((len >> 8) & 0xFF);
+	w->data[pos+2] = (uint8_t)((len >> 16) & 0xFF);
+	w->data[pos+3] = (uint8_t)(len >> 24);
+}
+
 int mc_save_3ds(const char *path, const mc_model_t *m) {
-	(void)path; (void)m;
-	MC_ERR("3ds: saving not implemented\n");
-	return -1;
+	wbuf_t w = {NULL, 0, 0};
+
+	size_t magic_pos = w_chunk_begin(&w, C3DS_MAGIC);
+
+	/* Version chunk */
+	w_u16(&w, 0x0002);
+	w_u32(&w, 10);
+	w_u32(&w, 3);
+
+	size_t edit_pos = w_chunk_begin(&w, C3DS_EDIT);
+
+	/* Materials */
+	for (int si = 0; si < m->numSurfaces; si++) {
+		const mc_surface_t *s = &m->surfaces[si];
+		const char *shader = s->shader[0] ? s->shader : s->name;
+
+		size_t mat_pos = w_chunk_begin(&w, C3DS_MAT_LIST);
+
+		size_t mn_pos = w_chunk_begin(&w, C3DS_MAT_NAME);
+		w_str(&w, shader);
+		w_chunk_end(&w, mn_pos);
+
+		const char *tex = s->texture[0] ? s->texture : (s->shader[0] ? s->shader : NULL);
+		if (tex) {
+			size_t tm_pos = w_chunk_begin(&w, C3DS_TEXMAP);
+			size_t tmn_pos = w_chunk_begin(&w, C3DS_MAT_MAPNAME);
+			w_str(&w, tex);
+			w_chunk_end(&w, tmn_pos);
+			w_chunk_end(&w, tm_pos);
+		}
+
+		if (s->normal_map[0]) {
+			size_t bm_pos = w_chunk_begin(&w, C3DS_BUMPMAP);
+			size_t bmn_pos = w_chunk_begin(&w, C3DS_MAT_MAPNAME);
+			w_str(&w, s->normal_map);
+			w_chunk_end(&w, bmn_pos);
+			w_chunk_end(&w, bm_pos);
+		}
+
+		w_chunk_end(&w, mat_pos);
+	}
+
+	/* Named objects */
+	for (int si = 0; si < m->numSurfaces; si++) {
+		const mc_surface_t *s = &m->surfaces[si];
+		const char *name = s->name[0] ? s->name : "surface";
+		const char *shader = s->shader[0] ? s->shader : s->name;
+
+		size_t no_pos = w_chunk_begin(&w, C3DS_NAMED_OBJECT);
+		w_str(&w, name);
+
+		size_t to_pos = w_chunk_begin(&w, C3DS_TRI_OBJECT);
+
+		/* Points: Q3 -> 3DS coord swap (x=y, y=-x, z=z) */
+		size_t pa_pos = w_chunk_begin(&w, C3DS_POINT_ARRAY);
+		w_u16(&w, (uint16_t)s->numVerts);
+		for (int v = 0; v < s->numVerts; v++) {
+			w_f32(&w, s->xyz[v*3+1]);
+			w_f32(&w, -s->xyz[v*3+0]);
+			w_f32(&w, s->xyz[v*3+2]);
+		}
+		w_chunk_end(&w, pa_pos);
+
+		/* Tex verts */
+		if (s->st) {
+			size_t tv_pos = w_chunk_begin(&w, C3DS_TEX_VERTS);
+			w_u16(&w, (uint16_t)s->numVerts);
+			for (int v = 0; v < s->numVerts; v++) {
+				w_f32(&w, s->st[v*2+0]);
+				w_f32(&w, 1.0f - s->st[v*2+1]);
+			}
+			w_chunk_end(&w, tv_pos);
+		}
+
+		/* Faces (reverse winding: c, b, a) */
+		size_t fa_pos = w_chunk_begin(&w, C3DS_FACE_ARRAY);
+		w_u16(&w, (uint16_t)s->numTris);
+		for (int t = 0; t < s->numTris; t++) {
+			w_u16(&w, (uint16_t)s->indices[t*3+2]);
+			w_u16(&w, (uint16_t)s->indices[t*3+1]);
+			w_u16(&w, (uint16_t)s->indices[t*3+0]);
+			w_u16(&w, 0);
+		}
+
+		/* Material group */
+		size_t mg_pos = w_chunk_begin(&w, C3DS_MSH_MAT_GROUP);
+		w_str(&w, shader);
+		w_u16(&w, (uint16_t)s->numTris);
+		for (int t = 0; t < s->numTris; t++)
+			w_u16(&w, (uint16_t)t);
+		w_chunk_end(&w, mg_pos);
+
+		w_chunk_end(&w, fa_pos);
+		w_chunk_end(&w, to_pos);
+		w_chunk_end(&w, no_pos);
+	}
+
+	/* Tags as minimal named objects */
+	for (int ti = 0; ti < m->numTags; ti++) {
+		const mc_tag_t *tag = &m->tags[ti];
+		size_t no_pos = w_chunk_begin(&w, C3DS_NAMED_OBJECT);
+		w_str(&w, tag->name);
+
+		size_t to_pos = w_chunk_begin(&w, C3DS_TRI_OBJECT);
+		size_t pa_pos = w_chunk_begin(&w, C3DS_POINT_ARRAY);
+		w_u16(&w, 3);
+		w_f32(&w, tag->origin[1]); w_f32(&w, -tag->origin[0]); w_f32(&w, tag->origin[2]);
+		w_f32(&w, tag->origin[1]+1.0f); w_f32(&w, -tag->origin[0]); w_f32(&w, tag->origin[2]);
+		w_f32(&w, tag->origin[1]); w_f32(&w, -(tag->origin[0]-1.0f)); w_f32(&w, tag->origin[2]);
+		w_chunk_end(&w, pa_pos);
+
+		size_t fa_pos = w_chunk_begin(&w, C3DS_FACE_ARRAY);
+		w_u16(&w, 1);
+		w_u16(&w, 0); w_u16(&w, 1); w_u16(&w, 2); w_u16(&w, 0);
+		w_chunk_end(&w, fa_pos);
+
+		w_chunk_end(&w, to_pos);
+		w_chunk_end(&w, no_pos);
+	}
+
+	w_chunk_end(&w, edit_pos);
+	w_chunk_end(&w, magic_pos);
+
+	int rc = mc_write_file(path, w.data, w.size);
+	free(w.data);
+	if (rc == 0)
+		MC_INFO("3ds: wrote %s (%d surfaces, %d tags)\n", path, m->numSurfaces, m->numTags);
+	return rc;
 }
