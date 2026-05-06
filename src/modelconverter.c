@@ -27,7 +27,7 @@ static int path_is_directory(const char *p) {
 }
 
 static void print_help(const char *prog) {
-	printf("modelconverter - WoP/Quake3 model interop tool\n"
+	printf("modelconverter " MC_VERSION " - WoP/Quake3 model interop tool\n"
 		   "\n"
 		   "Usage: %s [options] -i <input> -o <output>\n"
 		   "       %s --info -i <file>\n"

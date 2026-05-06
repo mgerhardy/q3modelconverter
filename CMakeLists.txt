@@ -72,6 +72,7 @@ if (MATH_LIBRARY)
 endif()
 
 add_executable(${PROJECT_NAME} src/modelconverter.c)
+target_compile_definitions(${PROJECT_NAME} PRIVATE MC_VERSION="${PROJECT_VERSION}")
 target_link_libraries(${PROJECT_NAME} PRIVATE modelconverter_lib)
 
 # ---- Tests ----
