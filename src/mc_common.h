@@ -411,7 +411,7 @@ void mc_surface_alloc_blend(mc_surface_t *s);
 void mc_model_set_joints(mc_model_t *m, int numJoints);
 
 /* Format detection. */
-typedef enum { MC_FMT_UNKNOWN, MC_FMT_GLTF, MC_FMT_GLB, MC_FMT_MD3, MC_FMT_IQM, MC_FMT_MDR } mc_format_t;
+typedef enum { MC_FMT_UNKNOWN, MC_FMT_GLTF, MC_FMT_GLB, MC_FMT_MD3, MC_FMT_IQM, MC_FMT_MDR, MC_FMT_ASE } mc_format_t;
 
 mc_format_t mc_guess_format(const char *path);
 const char *mc_format_name(mc_format_t f);
@@ -432,6 +432,9 @@ int mc_save_iqm(const char *path, const mc_model_t *m);
 
 int mc_load_mdr(const char *path, mc_model_t *out);
 int mc_save_mdr(const char *path, const mc_model_t *m);
+
+int mc_load_ase(const char *path, mc_model_t *out);
+int mc_save_ase(const char *path, const mc_model_t *m);
 
 /* Skin file output (Quake3 .skin format). */
 int mc_save_skin(const char *path, const mc_model_t *m);

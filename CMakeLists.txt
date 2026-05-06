@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(modelconverter VERSION 1.0 LANGUAGES C)
+project(modelconverter VERSION 1.1 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -30,6 +30,7 @@ set(LIB_SRCS
 	src/mc_md3.c
 	src/mc_iqm.c
 	src/mc_mdr.c
+	src/mc_ase.c
 
 	src/mc_gltf_read.c
 	src/mc_gltf_write.c
