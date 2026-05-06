@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(modelconverter VERSION 1.1 LANGUAGES C)
+project(modelconverter VERSION 1.2 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
